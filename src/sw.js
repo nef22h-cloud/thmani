@@ -34,6 +34,12 @@ registerRoute(
   new CacheFirst({ cacheName: 'ocr-engine' })
 );
 
+// ملفات التطبيق اللي تنحمّل عند الحاجة بس (مثل قارئ PDF): نحفظها أول مرة عشان تشتغل بدون نت
+registerRoute(
+  ({ url }) => url.origin === self.location.origin && url.pathname.startsWith(`${BASE}assets/`) && /\.m?js$/.test(url.pathname),
+  new CacheFirst({ cacheName: 'lazy-assets' })
+);
+
 const show = (title, options) => self.registration.showNotification(title, options);
 
 // فحص دوري في الخلفية (Chrome/Edge على أندرويد للتطبيقات المثبتة)

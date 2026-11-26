@@ -162,10 +162,10 @@ function labeled(text, labelRe) {
   const L = `(?:^|[\\s(])(?:${labelRe.source})(?![\\p{Script=Arabic}A-Za-z])`;
   for (const line of lines(text)) {
     const m = line.match(new RegExp(`${L}\\s*[:：\\-]?\\s*(.+)$`, 'iu'));
-    if (m && /[\p{L}\d]{2,}/u.test(m[1])) return m[1].trim();
+    if (m && /[\p{L}\d]{2,}/u.test(m[1].split('¦')[0])) return m[1].split('¦')[0].trim();
     // أحياناً OCR يقلب ترتيب السطر فتجي القيمة قبل التسمية: "UA55X900 الموديل:"
     const r = line.match(new RegExp(`^(.+?)\\s*${L}\\s*[:：]?$`, 'iu'));
-    if (r && /[\p{L}\d]{2,}/u.test(r[1])) return r[1].trim();
+    if (r && /[\p{L}\d]{2,}/u.test(r[1].split('¦').at(-1))) return r[1].split('¦').at(-1).trim();
   }
   return null;
 }
@@ -187,20 +187,26 @@ const UNIT_WORDS = /^(حبة|حبه|قطعة|قطعه|عدد|كرتون|علبة
 
 /** أطول سلسلة كلمات (عربية/موديل) في سطر من جدول الأصناف */
 function itemTextFromRow(row) {
+  const cells = row.includes('¦'); // من PDF: الخانات مفصولة، فالأرقام داخل الخانة جزء من الاسم
   const tokens = row.split(/\s+/).map((t) => t.replace(/^[,،.;:]+|[,،.;:]+$/g, ''));
   let best = [], cur = [];
+  const close = () => {
+    // الأرقام في آخر الاسم غالباً الكمية (في نص OCR)، إلا لو الخانات مفصولة
+    while (!cells && cur.length && /^\d+$/.test(cur.at(-1))) cur.pop();
+    if (cur.join(' ').length > best.join(' ').length) best = cur;
+    cur = [];
+  };
   for (const t of tokens) {
     const isAr = /^\p{Script=Arabic}{2,}$/u.test(t) && !UNIT_WORDS.test(t);
     // كلمات إنجليزية (أسماء منتجات أونلاين غالباً إنجليزي): HyperX Cloud III ...
     const isEn = /^[A-Za-z][A-Za-z'&+]{1,}$/.test(t) && !UNIT_WORDS.test(t);
-    const isModel = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{3,12}$/.test(t);
-    if (isAr || isEn || (isModel && cur.length)) cur.push(t);
-    else {
-      if (cur.join(' ').length > best.join(' ').length) best = cur;
-      cur = [];
-    }
+    const isModel = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{3,12}$/i.test(t) && t.length <= 12;
+    // رقم صغير أو مقاس داخل الاسم: "65 واط"، "Watch 7"، "55 بوصة"
+    const isSmallNum = /^\d{1,4}(?:mm|cm|gb|tb|w|kg|l)?$/i.test(t);
+    if (isAr || isEn || ((isModel || isSmallNum) && cur.length)) cur.push(t);
+    else close();
   }
-  if (cur.join(' ').length > best.join(' ').length) best = cur;
+  close();
   if (!best.length || best.join(' ').length < 4) return null;
   // لو في الصف رقم موديل (حروف + أرقام) نضيفه للاسم: "بطارية اسيدبلكو NS60LSMF"
   const model = tokens.find((t) => /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{5,12}$/.test(t) && !best.includes(t));
@@ -208,6 +214,37 @@ function itemTextFromRow(row) {
 }
 
 /** اسم المنتج: من سطر "المنتج: ..."، أو أول صف تحت رأس جدول الأصناف، أو السطر اللي قبل "الكمية" */
+/**
+ * كل أصناف جدول الفاتورة: [{ name, amount }] (amount = آخر مبلغ في الصف، غالباً إجمالي الصنف)
+ * نوقف عند أول سطر إجماليات.
+ */
+export function pickItems(text) {
+  const ls = lines(text);
+  const hi = ls.findIndex(
+    (l) => (TABLE_HEADER.test(l) && !/[:：]\s*\S/.test(l.replace(TABLE_HEADER, ''))) || (l.match(TABLE_COLS) ?? []).length >= 3
+  );
+  if (hi < 0) return [];
+  const items = [];
+  for (const row of ls.slice(hi + 1, hi + 40)) {
+    if (/^(المجموع|الإجمالي|الاجمالي|إجمالي|اجمالي|subtotal|total|ضريبة القيمة)/i.test(row) && items.length) break;
+    if (HEADERISH.test(row) || (row.match(TABLE_COLS) ?? []).length >= 2) continue;
+    const amounts = [...row.matchAll(/\d{1,3}(?:,\d{3})*\.\d{2}/g)].map((m) => Number(m[0].replace(/,/g, '')));
+    if (!amounts.length) continue;
+    const name = itemTextFromRow(row);
+    if (name && !NAME_STOP.test(name)) items.push({ name, amount: amounts[amounts.length - 1], row });
+  }
+  // اسم الصنف أحياناً ينكمل في السطر اللي تحته (الخانة ضيقة)
+  for (const it of items) {
+    const i = ls.indexOf(it.row);
+    const next = ls[i + 1];
+    delete it.row;
+    if (!next || /\d+\.\d{2}/.test(next) || /[:：]|serial|تسلسل|الموديل|باركود/i.test(next) || HEADERISH.test(next)) continue;
+    const more = itemTextFromRow(next.replace(/^[\d\s¦]+/, ''));
+    if (more && more.split(' ').length <= 4) it.name = `${it.name} ${more}`.replace(/\s+(for|with|and|و|-)$/i, '').trim();
+  }
+  return items;
+}
+
 export function pickProductName(text) {
   const ls = lines(text);
   // جدول أصناف: رأس الجدول فيه "البيان/الوصف" (وأحياناً موزّع على عدة أسطر)،
@@ -338,7 +375,8 @@ export function guessCategory(name, context = '') {
 
 /** يستخرج كل الحقول الممكنة من نص الفاتورة */
 export function parseInvoiceText(text, todayISO) {
-  const productName = pickProductName(text);
+  const items = pickItems(text);
+  const productName = items[0]?.name ?? pickProductName(text);
   return {
     storeName: pickStoreName(text),
     branch: pickBranch(text),
@@ -347,6 +385,7 @@ export function parseInvoiceText(text, todayISO) {
     vatNumber: pickVatNumber(text),
     phone: pickPhone(text),
     productName,
+    items,
     model: pickModel(text),
     category: guessCategory(productName, text),
     serialNumber: pickSerial(text),

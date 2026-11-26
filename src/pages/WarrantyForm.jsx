@@ -3,6 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { clearDraft, peekDraft } from '../services/draft.js';
 import PageHeader from '../components/PageHeader.jsx';
 import ImagePicker from '../components/ImagePicker.jsx';
+import CameraScanner from '../components/CameraScanner.jsx';
+import Toast from '../components/Toast.jsx';
+import { QrIcon, XIcon } from '../components/Icons.jsx';
+import { decodeZatcaQR } from '../lib/zatca.js';
+import { zatcaToPrefill } from '../lib/prefill.js';
+import { guessCategory } from '../lib/invoiceParser.js';
+import { formatMoney } from '../lib/format.js';
+import { QR_FORMATS } from '../services/scanner.js';
 import NotFound from './NotFound.jsx';
 import { getImages, getWarranty, saveWarranty } from '../db/warrantyRepo.js';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -32,6 +40,8 @@ const EMPTY = {
 const SOURCE_LABELS = {
   qr: 'من QR الفاتورة الإلكترونية',
   'ocr+qr': 'من صورة الفاتورة و QR',
+  pdf: 'من ملف PDF',
+  'pdf+qr': 'من ملف PDF و QR',
   ocr: 'من صورة الفاتورة',
   barcode: 'من باركود المنتج',
 };
@@ -56,9 +66,22 @@ export default function WarrantyForm() {
   useEffect(() => {
     clearDraft();
   }, []);
-  const autoFilled = new Set(Object.keys(draft?.prefill ?? {}).filter((k) => k !== 'vatAmount' && k !== 'invoiceTime'));
+  const [autoFilled, setAutoFilled] = useState(() => new Set(Object.keys(draft?.prefill ?? {}).filter((k) => k !== 'vatAmount' && k !== 'invoiceTime')));
+  // فاتورة فيها أكثر من صنف: المستخدم يختار، ويقدر يحفظ ويكمل للصنف اللي بعده
+  const items = draft?.items?.length > 1 ? draft.items : null;
+  const [itemIndex, setItemIndex] = useState(0);
+  const [savedItems, setSavedItems] = useState([]);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const hasQr = /qr/.test(draft?.source ?? '');
 
-  const [form, setForm] = useState(() => ({ ...EMPTY, ...(draft?.prefill ?? {}) }));
+  const [form, setForm] = useState(() => {
+    const f = { ...EMPTY, ...(draft?.prefill ?? {}) };
+    // أكثر من صنف: نبدأ بالصنف الأول وسعره (مو إجمالي الفاتورة)
+    const first = draft?.items?.length > 1 ? draft.items[0] : null;
+    if (first) Object.assign(f, { productName: first.name, price: first.amount ?? f.price, category: guessCategory(first.name) ?? f.category });
+    return f;
+  });
   const [images, setImages] = useState(() =>
     (draft?.images ?? []).map((img) => ({ ...img, key: `new-${++tempKey}` }))
   ); // [{key, kind, blob, id?}]
@@ -85,6 +108,22 @@ export default function WarrantyForm() {
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
+  function chooseItem(i) {
+    const it = items[i];
+    setItemIndex(i);
+    setForm((f) => ({ ...f, productName: it.name, category: guessCategory(it.name) ?? f.category, price: it.amount ?? f.price, serialNumber: '', barcode: '' }));
+    setAutoFilled((s) => new Set([...s, 'productName', 'price']));
+  }
+
+  /** بيانات QR الفاتورة (من زر "أضف QR") تغلب على اللي انقرأ من النص */
+  function applyQr(prefill) {
+    setForm((f) => ({ ...f, ...prefill }));
+    setAutoFilled((s) => new Set([...s, ...Object.keys(prefill).filter((k) => k !== 'vatAmount' && k !== 'invoiceTime')]));
+    setQrOpen(false);
+    setNotice('تم: أخذنا المتجر والتاريخ والمبلغ من QR الفاتورة');
+    setTimeout(() => setNotice(null), 3000);
+  }
+
   const expiry = useMemo(
     () => computeExpiryDate(form.purchaseDate, warrantyMonths(form.warrantyValue, form.warrantyUnit)),
     [form.purchaseDate, form.warrantyValue, form.warrantyUnit]
@@ -103,8 +142,8 @@ export default function WarrantyForm() {
     return Object.keys(e).length === 0;
   }
 
-  async function handleSubmit(ev) {
-    ev.preventDefault();
+  async function handleSubmit(ev, { next = false } = {}) {
+    ev?.preventDefault();
     if (!validate()) {
       document.querySelector('[aria-invalid=true]')?.focus();
       return;
@@ -127,6 +166,20 @@ export default function WarrantyForm() {
         added: images.filter((i) => !i.id).map(({ kind, blob }) => ({ kind, blob })),
         removedIds,
       });
+      if (next && items) {
+        // نكمل للصنف اللي بعده بنفس بيانات الفاتورة (المتجر والتاريخ والصورة)
+        const done = [...savedItems, itemIndex];
+        setSavedItems(done);
+        const nextIndex = items.findIndex((_, i) => !done.includes(i));
+        setSaving(false);
+        if (nextIndex >= 0) {
+          chooseItem(nextIndex);
+          setNotice(`تم حفظ "${data.productName}". الحين: ${items[nextIndex].name}`);
+          setTimeout(() => setNotice(null), 3500);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+      }
       navigate(`/w/${newId}`, { replace: true });
     } catch (err) {
       console.error(err);
@@ -143,6 +196,38 @@ export default function WarrantyForm() {
       <PageHeader title={isEdit ? 'تعديل الضمان' : draft ? 'مراجعة البيانات' : 'إدخال يدوي'} back />
       <form onSubmit={handleSubmit} noValidate className="space-y-5 px-4">
         {draft && <DraftBanner draft={draft} count={autoFilled.size} filled={autoFilled} />}
+        {!isEdit && !hasQr && (
+          <button type="button" onClick={() => setQrOpen(true)} className="card flex w-full items-center gap-3 p-3 text-start active:scale-[0.99]">
+            <QrIcon className="size-7 shrink-0 text-brand-700 dark:text-brand-400" />
+            <span className="flex-1">
+              <span className="block font-semibold">عندك QR الفاتورة؟</span>
+              <span className="block text-sm text-slate-500 dark:text-slate-400">امسحه ونعبّي المتجر والتاريخ والمبلغ بدقة</span>
+            </span>
+          </button>
+        )}
+        {items && (
+          <section className="card space-y-3 p-4">
+            <p className="font-semibold">الفاتورة فيها {items.length} أصناف. أي واحد تسجّل له الضمان؟</p>
+            <div className="flex flex-col gap-2">
+              {items.map((it, i) => {
+                const active = i === itemIndex;
+                const done = savedItems.includes(i);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => chooseItem(i)}
+                    aria-pressed={active}
+                    className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-start text-sm ring-1 ${active ? 'bg-brand-50 ring-brand-600 dark:bg-brand-950/40' : 'ring-slate-200 dark:ring-slate-700'}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">{done ? '✓ ' : ''}{it.name}</span>
+                    {it.amount != null && <span className="shrink-0 text-slate-500 dark:text-slate-400">{formatMoney(it.amount)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
         <Section title="المنتج">
           <Field label="اسم المنتج *" error={errors.productName} auto={autoFilled.has('productName')}>
             <input className="input" value={form.productName} onChange={set('productName')} placeholder="مثلاً: غسالة سامسونج 9 كيلو" aria-invalid={!!errors.productName} autoFocus={!isEdit && !draft?.prefill?.productName} />
@@ -263,9 +348,48 @@ export default function WarrantyForm() {
           <button type="submit" className="btn-primary w-full text-lg" disabled={saving}>
             {saving ? 'جاري الحفظ…' : isEdit ? 'حفظ التعديلات' : 'حفظ الضمان'}
           </button>
+          {items && savedItems.length + 1 < items.length && (
+            <button type="button" className="btn-secondary mt-2 w-full" disabled={saving} onClick={() => handleSubmit(null, { next: true })}>
+              حفظ وأضف الصنف التالي
+            </button>
+          )}
         </div>
       </form>
+      {qrOpen && <QrSheet onResult={applyQr} onClose={() => setQrOpen(false)} />}
+      <Toast message={notice} tone="info" />
     </>
+  );
+}
+
+/** نافذة مسح QR الفاتورة من داخل النموذج */
+function QrSheet({ onResult, onClose }) {
+  const [msg, setMsg] = useState(null);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-950" role="dialog" aria-modal="true" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="flex items-center gap-2 px-4 py-3">
+        <h2 className="flex-1 text-xl font-bold">QR الفاتورة</h2>
+        <button onClick={onClose} className="flex size-11 items-center justify-center rounded-full hover:bg-slate-200/60 dark:hover:bg-slate-800" aria-label="إغلاق">
+          <XIcon />
+        </button>
+      </div>
+      <div className="px-4">
+        <CameraScanner
+          formats={QR_FORMATS}
+          hint="وجّه الكاميرا على QR الفاتورة، أو اختر صورة له"
+          onDetect={(text) => {
+            const inv = decodeZatcaQR(text);
+            if (!inv) {
+              setMsg('هذا مو QR فاتورة إلكترونية');
+              setTimeout(() => setMsg(null), 2500);
+              return false;
+            }
+            onResult(zatcaToPrefill(inv));
+            return true;
+          }}
+        />
+      </div>
+      <Toast message={msg} />
+    </div>
   );
 }
 

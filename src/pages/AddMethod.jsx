@@ -5,7 +5,7 @@ import { BarcodeIcon, CameraIcon, EditIcon, QrIcon } from '../components/Icons.j
 const METHODS = [
   { to: '/add/qr', icon: QrIcon, title: 'مسح QR الفاتورة', desc: 'يقرأ بيانات الفاتورة الإلكترونية تلقائياً' },
   { to: '/add/barcode', icon: BarcodeIcon, title: 'مسح باركود المنتج', desc: 'يحفظ رقم الباركود واسم المنتج' },
-  { to: '/add/ocr', icon: CameraIcon, title: 'تصوير الفاتورة', desc: 'يقرأ التاريخ والمبلغ والمتجر من الصورة' },
+  { to: '/add/ocr', icon: CameraIcon, title: 'تصوير الفاتورة', desc: 'صورة أو ملف PDF، ويقرأ المنتج والتاريخ والمبلغ والمتجر' },
   { to: '/add/manual', icon: EditIcon, title: 'إدخال يدوي', desc: 'عبّي البيانات بنفسك وارفع صورة الفاتورة' },
 ];
 

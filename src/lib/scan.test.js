@@ -194,3 +194,63 @@ test('OCR: فاتورة نون (جدول رأسه موزّع على أسطر، �
   assert.equal(r.branch, null);
   assert.equal(r.total, 268);
 });
+
+test('نص PDF: أشكال العرض العربية والترتيب المقلوب', async () => {
+  const { normalizePdfText, reverseArabicWords } = await import('./pdfText.js');
+  // أشكال العرض (presentation forms) تتحول لحروف عادية
+  const pres = normalizePdfText('ﻓﺎﺗﻮﺭﺓ ﺿﺮﻳﺒﻴﺔ\nﺍﻹﺟﻤﺎﻟﻲ 268.00\nالمجموع الفرعي 233.04 ضريبة القيمة المضافة 34.96');
+  assert.match(pres.text, /فاتورة ضريبية/);
+  assert.equal(pres.usable, true);
+  // ترتيب بصري مقلوب
+  const rev = normalizePdfText(reverseArabicWords('فاتورة ضريبية\nالإجمالي 268.00\nالمجموع 233.04 الكمية 1 السعر 233.04'));
+  assert.match(rev.text, /الإجمالي 268.00/);
+  // نص قليل = نرجع لـ OCR
+  assert.equal(normalizePdfText('Page 1').usable, false);
+});
+
+test('OCR: فاتورة فيها أكثر من صنف', () => {
+  const text = `متجر الأجهزة الحديثة
+رقم الصنف البيان الوحدة الكمية السعر الإجمالي
+101 مكنسة كهربائية فيليبس حبة 1 450.00 517.50
+102 مكواة بخار تيفال حبة 1 199.00 228.85
+103 خلاط مولينكس حبة 2 120.00 276.00
+المجموع 895.00
+ضريبة القيمة المضافة 15% 127.35
+الإجمالي بعد الضريبة 1,022.35`;
+  const r = parseInvoiceText(text, '2026-11-26');
+  assert.deepEqual(r.items.map((i) => i.name), ['مكنسة كهربائية فيليبس', 'مكواة بخار تيفال', 'خلاط مولينكس']);
+  assert.deepEqual(r.items.map((i) => i.amount), [517.5, 228.85, 276]);
+  assert.equal(r.productName, 'مكنسة كهربائية فيليبس');
+  assert.equal(r.total, 1022.35);
+});
+
+test('نص PDF: تحويل الترتيب البصري للمنطقي مع الخانات', async () => {
+  const { rowToText } = await import('./pdfText.js');
+  // "فاتورة" مخزّنة حرف حرف من اليسار لليمين (ة ر و ت ا ف)، وقطعة "رة" بحرفين بترتيب صحيح
+  const items = [
+    { x: 0, width: 30, str: '268.00' },
+    { x: 60, width: 5, str: 'ة' },
+    { x: 65, width: 5, str: 'ر' },
+    { x: 70, width: 5, str: 'و' },
+    { x: 75, width: 5, str: 'ت' },
+    { x: 80, width: 5, str: 'ا' },
+    { x: 85, width: 5, str: 'ف' },
+  ];
+  assert.equal(rowToText(items, 10, true), 'فاتورة ¦ 268.00');
+  assert.equal(rowToText([{ x: 0, width: 10, str: 'رة' }, { x: 10, width: 5, str: 'و' }, { x: 15, width: 5, str: 'ت' }, { x: 20, width: 5, str: 'ا' }, { x: 25, width: 5, str: 'ف' }], 10, true), 'فاتورة');
+  // سطر إنجليزي يبقى زي ما هو
+  assert.equal(rowToText([{ x: 0, width: 40, str: 'HyperX' }, { x: 43, width: 30, str: 'Cloud' }], 10, false), 'HyperX Cloud');
+});
+
+test('أصناف PDF: أرقام داخل الاسم وسطر مكمّل', () => {
+  const text = `كود المنتج ¦ الوصف ¦ الكمية ¦ الإجمالي شامل
+1 ¦ A1 ¦ سماعة أبل AirPods Pro ¦ 1 ¦ 869.57 ¦ 130.43 ¦ 1,000.00
+الجيل الثاني
+2 ¦ B2 ¦ شاحن أنكر 65 واط ¦ 1 ¦ 130.43 ¦ 19.57 ¦ 150.00
+المجموع ¦ 1,150.00`;
+  const r = parseInvoiceText(text, '2026-11-26');
+  assert.deepEqual(r.items, [
+    { name: 'سماعة أبل AirPods Pro الجيل الثاني', amount: 1000 },
+    { name: 'شاحن أنكر 65 واط', amount: 150 },
+  ]);
+});

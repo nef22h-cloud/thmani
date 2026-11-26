@@ -14,6 +14,7 @@ import { deleteWarranty, getImages, getWarranty, saveWarranty } from '../db/warr
 import { listClaimsFor } from '../db/claimRepo.js';
 import { isClaimOpen, sortClaims } from '../lib/claims.js';
 import ClaimItem from '../components/ClaimItem.jsx';
+import { shareOrDownload } from '../services/share.js';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { categoryById, IMAGE_KINDS } from '../lib/constants.js';
 import { daysLabel, durationLabel, formatDate } from '../lib/dates.js';
@@ -70,7 +71,7 @@ export default function WarrantyDetails() {
   async function exportPdf() {
     setPdfBusy(true);
     try {
-      const [{ createWarrantyPdf }, { shareOrDownload }] = await Promise.all([import('../services/pdf.js'), import('../services/share.js')]);
+      const { createWarrantyPdf } = await import('../services/pdf.js');
       const file = await createWarrantyPdf({ warranty: w, images, claims, settings });
       await shareOrDownload(file, { title: `ضمان ${w.productName}`, downloadName: `damani-warranty-${w.purchaseDate}-${w.id}.pdf` });
     } catch (e) {
