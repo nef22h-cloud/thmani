@@ -9,7 +9,7 @@ import { decodeZatcaQR } from '../lib/zatca.js';
 import { mergePrefill, ocrToPrefill, zatcaToPrefill } from '../lib/prefill.js';
 import { toISODate, today } from '../lib/dates.js';
 import { recognizeInvoice } from '../services/ocr.js';
-import { QR_FORMATS, scanImage } from '../services/scanner.js';
+import { PRODUCT_FORMATS, QR_FORMATS, scanImage } from '../services/scanner.js';
 import { setDraft } from '../services/draft.js';
 
 export default function ScanInvoice() {
@@ -28,14 +28,16 @@ export default function ScanInvoice() {
     setImage(file);
     setProgress({ stage: 'loading', progress: 0 });
     try {
-      // نقرأ QR الفاتورة (لو موجود في الصورة) والنص بالتوازي
-      const [qrText, text] = await Promise.all([
+      // نقرأ QR الفاتورة وباركود المنتج (لو موجودين في الصورة) والنص بالتوازي
+      const [qrText, barText, text] = await Promise.all([
         scanImage(file, QR_FORMATS).catch(() => null),
+        scanImage(file, PRODUCT_FORMATS).catch(() => null),
         recognizeInvoice(file, setProgress),
       ]);
       const zatca = qrText ? decodeZatcaQR(qrText) : null;
       const ocr = parseInvoiceText(text, toISODate(today()));
       const prefill = mergePrefill(ocrToPrefill(ocr), zatca ? zatcaToPrefill(zatca) : {});
+      if (barText && /^\d{8,14}$/.test(barText)) prefill.barcode = barText;
       setDraft({
         source: zatca ? 'ocr+qr' : 'ocr',
         prefill,

@@ -89,3 +89,45 @@ test('OCR: إجمالي إنجليزي وسطر منفصل', () => {
   assert.equal(pickTotal('Subtotal 100.00\nVAT 15.00\nGrand Total\nSAR 115.00'), 115);
   assert.equal(pickTotal('items...\n 45.50 \n 120.75 \n'), 120.75);
 });
+
+test('OCR: بيانات المنتج والضمان كاملة', () => {
+  const text = `متجر النخبة للإلكترونيات
+فاتورة ضريبية مبسطة
+الفرع: الرياض - حي النرجس
+هاتف: 011 234 5678
+الرقم الضريبي: 310123456700003
+التاريخ: 20/11/2026 الوقت: 14:30
+المنتج: شاشة تلفزيون سمارت 55 بوصة
+الموديل: UA55X900
+الرقم التسلسلي: SN55TV8842X
+الباركود: 6291041500213
+الكمية: 1 السعر: 1,999.13
+مدة الضمان: سنتين
+الاسترجاع خلال 7 أيام من تاريخ الشراء
+الإجمالي شامل الضريبة 2,299.00 ر.س`;
+  const r = parseInvoiceText(text, '2026-11-26');
+  assert.equal(r.storeName, 'متجر النخبة للإلكترونيات');
+  assert.equal(r.branch, 'الرياض - حي النرجس');
+  assert.equal(r.phone, '0112345678');
+  assert.equal(r.productName, 'شاشة تلفزيون سمارت 55 بوصة');
+  assert.equal(r.category, 'electronics');
+  assert.equal(r.model, 'UA55X900');
+  assert.equal(r.serialNumber, 'SN55TV8842X');
+  assert.equal(r.barcode, '6291041500213');
+  assert.deepEqual(r.warranty, { value: 2, unit: 'years' });
+  assert.equal(r.returnDays, 7);
+  assert.equal(r.total, 2299);
+});
+
+test('OCR: صيغ ضمان وتسلسلي إنجليزية', () => {
+  const r = parseInvoiceText('Product: Galaxy S25\nS/N: R58X12AB9\nWarranty: 24 months\n14 days return policy', '2026-11-26');
+  assert.equal(r.serialNumber, 'R58X12AB9');
+  assert.equal(r.category, 'phones');
+  assert.deepEqual(r.warranty, { value: 24, unit: 'months' });
+});
+
+test('OCR: قيمة قبل التسمية وعلامات اتجاه', () => {
+  const r = parseInvoiceText('UA55X900 ‏الموديل:‎\nالرقم التسلسلي: ‎SN55TV8842X‏', '2026-11-26');
+  assert.equal(r.model, 'UA55X900');
+  assert.equal(r.serialNumber, 'SN55TV8842X');
+});

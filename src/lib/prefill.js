@@ -14,11 +14,20 @@ export function zatcaToPrefill(inv) {
 
 export function ocrToPrefill(r) {
   return clean({
+    productName: r.productName,
+    category: r.category,
     storeName: r.storeName,
+    storeBranch: r.branch,
     purchaseDate: r.purchaseDate,
     price: r.total,
     vatNumber: r.vatNumber,
     storePhone: r.phone,
+    serialNumber: r.serialNumber,
+    barcode: r.barcode,
+    warrantyValue: r.warranty?.value,
+    warrantyUnit: r.warranty?.unit,
+    returnDays: r.returnDays,
+    notes: r.model ? `الموديل: ${r.model}` : null,
   });
 }
 

@@ -142,12 +142,12 @@ export default function WarrantyForm() {
     <>
       <PageHeader title={isEdit ? 'تعديل الضمان' : draft ? 'مراجعة البيانات' : 'إدخال يدوي'} back />
       <form onSubmit={handleSubmit} noValidate className="space-y-5 px-4">
-        {draft && <DraftBanner draft={draft} count={autoFilled.size} />}
+        {draft && <DraftBanner draft={draft} count={autoFilled.size} filled={autoFilled} />}
         <Section title="المنتج">
           <Field label="اسم المنتج *" error={errors.productName} auto={autoFilled.has('productName')}>
             <input className="input" value={form.productName} onChange={set('productName')} placeholder="مثلاً: غسالة سامسونج 9 كيلو" aria-invalid={!!errors.productName} autoFocus={!isEdit && !draft?.prefill?.productName} />
           </Field>
-          <Field label="التصنيف" group>
+          <Field label="التصنيف" group auto={autoFilled.has('category')}>
             <div className="grid grid-cols-3 gap-2">
               {CATEGORIES.map((c) => (
                 <button
@@ -168,7 +168,7 @@ export default function WarrantyForm() {
             </div>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="الرقم التسلسلي">
+            <Field label="الرقم التسلسلي" auto={autoFilled.has('serialNumber')}>
               <input className="input" dir="ltr" value={form.serialNumber} onChange={set('serialNumber')} placeholder="SN-..." />
             </Field>
             <Field label="الباركود" auto={autoFilled.has('barcode')}>
@@ -190,7 +190,7 @@ export default function WarrantyForm() {
             <input className="input" value={form.storeName} onChange={set('storeName')} placeholder="مثلاً: إكسترا" />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="الفرع">
+            <Field label="الفرع" auto={autoFilled.has('storeBranch')}>
               <input className="input" value={form.storeBranch} onChange={set('storeBranch')} placeholder="الرياض - العليا" />
             </Field>
             <Field label="رقم التواصل" auto={autoFilled.has('storePhone')}>
@@ -203,7 +203,7 @@ export default function WarrantyForm() {
         </Section>
 
         <Section title="الضمان">
-          <Field label="مدة الضمان *" error={errors.warrantyValue} group>
+          <Field label="مدة الضمان *" error={errors.warrantyValue} group auto={autoFilled.has('warrantyValue')}>
             <div className="mb-2 flex flex-wrap gap-2">
               {QUICK_DURATIONS.map(([v, u, label]) => {
                 const active = Number(form.warrantyValue) === v && form.warrantyUnit === u;
@@ -227,7 +227,7 @@ export default function WarrantyForm() {
               ينتهي الضمان في: <strong>{formatDate(expiry, { hijri: settings.showHijri })}</strong>
             </p>
           )}
-          <Field label="مدة الاسترجاع/الاستبدال (أيام)" error={errors.returnDays} hint="اكتب 0 لو ما فيه استرجاع">
+          <Field label="مدة الاسترجاع/الاستبدال (أيام)" error={errors.returnDays} auto={autoFilled.has('returnDays')} hint="اكتب 0 لو ما فيه استرجاع">
             <input type="number" inputMode="numeric" min="0" className="input num" value={form.returnDays} onChange={set('returnDays')} aria-invalid={!!errors.returnDays} />
           </Field>
           {returnDeadline && (
@@ -286,7 +286,8 @@ function fieldsLabel(n) {
   return `${n} حقل`;
 }
 
-function DraftBanner({ draft, count }) {
+function DraftBanner({ draft, count, filled }) {
+  const missing = [!filled.has('productName') && 'اسم المنتج', !filled.has('warrantyValue') && 'مدة الضمان'].filter(Boolean);
   const missingInvoice = !draft.images?.some((i) => i.kind === 'invoice');
   return (
     <div className="rounded-2xl bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-100 dark:ring-amber-900">
@@ -294,7 +295,7 @@ function DraftBanner({ draft, count }) {
         {count > 0 ? `عبّينا ${fieldsLabel(count)} ${SOURCE_LABELS[draft.source] ?? ''}` : 'ما قدرنا نقرأ بيانات كافية'}
       </p>
       <p className="mt-1 text-sm">
-        راجع الحقول المعلّمة بـ"تلقائي" وعدّلها لو فيها خطأ، وأكمل الباقي (اسم المنتج ومدة الضمان).
+        راجع الحقول المعلّمة بـ"تلقائي" وعدّلها لو فيها خطأ{missing.length ? `، وأكمل الباقي (${missing.join(' و')})` : ''}.
         {draft.notFound && ' ما لقينا اسم المنتج في قواعد البيانات، اكتبه بنفسك.'}
         {missingInvoice && ' لا تنسى تضيف صورة الفاتورة تحت.'}
       </p>

@@ -11,7 +11,8 @@ export function normalizeDigits(text) {
     .replace(/[۰-۹]/g, (d) => FA_DIGITS.indexOf(d))
     .replace(/٫/g, '.')
     .replace(/٬/g, ',')
-    .replace(/،/g, ',');
+    .replace(/،/g, ',')
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ''); // علامات الاتجاه اللي يضيفها OCR
 }
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -94,14 +95,14 @@ export function pickVatNumber(text) {
   return t.match(/\b3\d{13}3\b/)?.[0] ?? null;
 }
 
-/** رقم الجوال/الهاتف السعودي */
+/** رقم الجوال/الهاتف السعودي (جوال 05، أرضي 011-017، موحّد 9200، مجاني 800) */
 export function pickPhone(text) {
-  const t = normalizeDigits(text);
-  const m = t.match(/(?:\+?966|0)?5\d{8}\b|\b9200\d{5}\b|\b800\d{7}\b|\b01\d{7}\b/);
+  const t = normalizeDigits(text).replace(/(\d)[\s-](?=\d)/g, '$1');
+  const m = t.match(/(?:\+?966|0)5\d{8}(?!\d)|(?<!\d)9200\d{5}(?!\d)|(?<!\d)800\d{7}(?!\d)|(?<!\d)(?:\+?966|0)1[1-7]\d{7}(?!\d)/);
   return m?.[0] ?? null;
 }
 
-const STORE_STOPWORDS = /فاتورة|ضريبية|مبسطة|tax|invoice|simplified|receipt|إيصال|الرقم|رقم|vat|cr\b|سجل|تاريخ|date|tel|هاتف|جوال|www|http|@|\d{4,}/i;
+const STORE_STOPWORDS = /فرع|عنوان|فاتورة|ضريبية|مبسطة|tax|invoice|simplified|receipt|إيصال|الرقم|رقم|vat|cr\b|سجل|تاريخ|date|tel|هاتف|جوال|www|http|@|\d{4,}/i;
 
 /** اسم المتجر: عادةً من أول الأسطر، أول سطر "نصي" ليس عنوان الفاتورة */
 export function pickStoreName(text) {
@@ -116,13 +117,127 @@ export function pickStoreName(text) {
   return null;
 }
 
+// ===== بيانات المنتج والضمان =====
+
+const lines = (text) => normalizeDigits(text).split(/\n/).map((l) => l.replace(/[|*_=~#]+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+/** القيمة بعد "عنوان:" في سطر يطابق التسمية */
+function labeled(text, labelRe) {
+  for (const line of lines(text)) {
+    const m = line.match(new RegExp(`(?:${labelRe.source})\\s*[:：\\-]?\\s*(.+)$`, 'i'));
+    if (m && /[\p{L}\d]/u.test(m[1])) return m[1].trim();
+    // أحياناً OCR يقلب ترتيب السطر فتجي القيمة قبل التسمية: "UA55X900 الموديل:"
+    const r = line.match(new RegExp(`^(.+?)\\s*(?:${labelRe.source})\\s*[:：]?$`, 'i'));
+    if (r && /[\p{L}\d]/u.test(r[1])) return r[1].trim();
+  }
+  return null;
+}
+
+/** الرقم التسلسلي */
+export function pickSerial(text) {
+  const v = labeled(text, /الرقم\s*التسلسلي|رقم\s*تسلسلي|التسلسلي|serial\s*(?:no\.?|number)?|s\s*\/\s*n|imei/);
+  const m = v?.replace(/\s+/g, '').match(/[A-Z0-9][A-Z0-9\-]{4,}/i);
+  return m ? m[0].toUpperCase() : null;
+}
+
+const NAME_STOP = /الكمية|السعر|المجموع|الإجمالي|الاجمالي|ضريبة|الضريبة|الرقم|رقم|التاريخ|الوقت|هاتف|جوال|الضمان|الاسترجاع|الإرجاع|فاتورة|شكرا|qty|total|vat/i;
+
+/** اسم المنتج: من سطر "المنتج:"، وإلا السطر اللي قبل "الكمية" */
+export function pickProductName(text) {
+  const v = labeled(text, /اسم\s*المنتج|المنتج|الصنف|البيان|الوصف|item|product|description/);
+  if (v && !/^\d/.test(v)) return v.replace(/\s+\d+\s*[x×].*$/i, '').trim();
+  const ls = lines(text);
+  const qi = ls.findIndex((l) => /الكمية|qty/i.test(l));
+  if (qi > 0 && !NAME_STOP.test(ls[qi - 1])) return ls[qi - 1];
+  return null;
+}
+
+/** الموديل */
+export function pickModel(text) {
+  const v = labeled(text, /رقم\s*الموديل|الموديل|موديل|model(?:\s*no\.?)?/);
+  return v?.match(/[A-Z0-9][A-Z0-9\-\/]{2,}/i)?.[0].toUpperCase() ?? null;
+}
+
+/** الفرع / الموقع */
+export function pickBranch(text) {
+  const v = labeled(text, /الفرع|العنوان|الموقع|branch|address/);
+  if (v) return v;
+  const l = lines(text).slice(0, 8).find((x) => /^فرع\s/.test(x));
+  return l ? l.replace(/^فرع\s*/, '').trim() : null;
+}
+
+const AR_COUNTS = { 'سنة': [1, 'years'], 'سنه': [1, 'years'], 'سنتين': [2, 'years'], 'سنتان': [2, 'years'], 'شهر': [1, 'months'], 'شهرين': [2, 'months'] };
+
+/** مدة الضمان → { value, unit } */
+export function pickWarranty(text) {
+  const v = labeled(text, /مدة\s*الضمان|فترة\s*الضمان|الضمان|ضمان|warranty/);
+  if (!v) return null;
+  const m = v.match(/(\d{1,3})\s*(سنوات|سنة|سنه|سنين|years?|yrs?|شهور|شهر|أشهر|اشهر|months?)/i);
+  if (m) return { value: +m[1], unit: /شه|month/i.test(m[2]) ? 'months' : 'years' };
+  for (const [w, r] of Object.entries(AR_COUNTS)) if (new RegExp(`(^|\\s)${w}(\\s|$|\\|)`).test(v)) return { value: r[0], unit: r[1] };
+  return null;
+}
+
+/** مدة الاسترجاع بالأيام */
+export function pickReturnDays(text) {
+  for (const line of lines(text)) {
+    if (!/استرجاع|الاسترجاع|ارجاع|إرجاع|الإرجاع|استبدال|return/i.test(line)) continue;
+    const m = line.match(/(?:استرجاع|ارجاع|إرجاع|استبدال|return)[^\d]{0,25}(\d{1,3})\s*(يوم|أيام|ايام|days?)/i);
+    if (m) return +m[1];
+  }
+  return null;
+}
+
+/** باركود المنتج (EAN-13 / EAN-8 / UPC-A) لو مكتوب كرقم */
+export function pickBarcode(text) {
+  const t = normalizeDigits(text);
+  const labeledV = labeled(text, /الباركود|باركود|barcode|ean|upc/);
+  const cand = [labeledV, ...t.split(/\n/)].filter(Boolean);
+  for (const c of cand) {
+    for (const m of c.replace(/(\d)\s(?=\d)/g, '$1').matchAll(/(?<!\d)(\d{13}|\d{12}|\d{8})(?!\d)/g)) {
+      if (validEAN(m[1])) return m[1];
+    }
+  }
+  return null;
+}
+
+function validEAN(code) {
+  const d = code.split('').map(Number);
+  const check = d.pop();
+  const sum = d.reverse().reduce((s, n, i) => s + n * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+
+const CATEGORY_WORDS = [
+  ['phones', /جوال|ايفون|آيفون|iphone|galaxy|جالكسي|هاتف ذكي|موبايل/i],
+  ['appliances', /غسالة|ثلاجة|مكيف|فرن|ميكروويف|مكنسة|نشافة|غسالة صحون|خلاط|قلاية|سخان|برادة/i],
+  ['furniture', /كنب|سرير|طاولة|كرسي|دولاب|خزانة|مرتبة|مكتب خشب/i],
+  ['cars', /سيارة|إطار|اطار|بطارية سيارة|كفرات/i],
+  ['electronics', /شاشة|تلفزيون|تلفاز|لابتوب|حاسب|كمبيوتر|سماعة|ساعة ذكية|تابلت|آيباد|ايباد|بلايستيشن|كاميرا|طابعة|راوتر|tv|laptop/i],
+];
+
+/** تصنيف تقريبي من اسم المنتج */
+export function guessCategory(name) {
+  if (!name) return null;
+  return CATEGORY_WORDS.find(([, re]) => re.test(name))?.[0] ?? null;
+}
+
 /** يستخرج كل الحقول الممكنة من نص الفاتورة */
 export function parseInvoiceText(text, todayISO) {
+  const productName = pickProductName(text);
   return {
     storeName: pickStoreName(text),
+    branch: pickBranch(text),
     purchaseDate: pickPurchaseDate(text, todayISO),
     total: pickTotal(text),
     vatNumber: pickVatNumber(text),
     phone: pickPhone(text),
+    productName,
+    model: pickModel(text),
+    category: guessCategory(productName),
+    serialNumber: pickSerial(text),
+    warranty: pickWarranty(text),
+    returnDays: pickReturnDays(text),
+    barcode: pickBarcode(text),
   };
 }
