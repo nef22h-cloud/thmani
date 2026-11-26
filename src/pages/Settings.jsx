@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import PageHeader from '../components/PageHeader.jsx';
 import BackupCard from '../components/BackupCard.jsx';
+import LockCard from '../components/LockCard.jsx';
 import { BellIcon } from '../components/Icons.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { daysLabel, formatHijri, toISODate, today } from '../lib/dates.js';
@@ -66,6 +67,8 @@ export default function Settings() {
           <BackupCard />
         </div>
 
+        <LockCard />
+
         <Card title="العرض">
           <div>
             <p className="label">المظهر</p>
@@ -102,14 +105,8 @@ export default function Settings() {
           </label>
         </Card>
 
-        <Card title="قريباً">
-          <ul className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
-            <li>• قفل التطبيق برمز أو بصمة</li>
-            <li>• سجل المطالبات وتصدير PDF</li>
-          </ul>
-        </Card>
 
-        <p className="pb-4 text-center text-xs text-slate-400">ضماني · الإصدار 0.1 · بياناتك محفوظة على جهازك فقط</p>
+        <p className="pb-4 text-center text-xs text-slate-400">ضماني · الإصدار 1.0 · بياناتك محفوظة على جهازك فقط</p>
       </div>
     </>
   );

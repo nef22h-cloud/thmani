@@ -31,6 +31,11 @@ export function LockGate({ children }) {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [enabled, timeoutMin]);
 
+  // لو القفل مو مفعّل عند الفتح نعتبر التطبيق مفتوح، عشان لما يفعّله المستخدم ما ينقفل عليه فوراً
+  useEffect(() => {
+    if (ready && !enabled) setLocked(false);
+  }, [ready, enabled]);
+
   const lockNow = useCallback(() => setLocked(true), []);
 
   if (!ready) return null; // ننتظر الإعدادات عشان ما يبان المحتوى لحظة قبل القفل
