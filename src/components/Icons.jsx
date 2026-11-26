@@ -28,3 +28,6 @@ export const BellIcon = I(<><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z" /><path d
 export const ImageIcon = I(<><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-9 9" /></>);
 export const XIcon = I(<path d="M6 6l12 12M18 6 6 18" />);
 export const ClaimIcon = I(<><path d="M9 4h6l1 2h3v15H5V6h3z" /><path d="m9 13 2 2 4-4" /></>);
+export const DownloadIcon = I(<><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>);
+export const UploadIcon = I(<><path d="M12 15V4M7 9l5-5 5 5" /><path d="M5 20h14" /></>);
+export const CloudIcon = I(<><path d="M7 18a4 4 0 0 1-.6-8A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z" /><path d="m9.5 13.5 2 2 3.5-3.5" /></>);

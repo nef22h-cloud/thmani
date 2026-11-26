@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import PageHeader from '../components/PageHeader.jsx';
+import BackupCard from '../components/BackupCard.jsx';
 import { BellIcon } from '../components/Icons.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { daysLabel, formatHijri, toISODate, today } from '../lib/dates.js';
@@ -8,6 +10,11 @@ import { checkReminders, notificationsSupported, requestNotificationPermission, 
 export default function Settings() {
   const { settings, update } = useSettings();
   const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : 'unsupported'));
+
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash === '#backup') document.getElementById('backup')?.scrollIntoView({ behavior: 'smooth' });
+  }, [hash]);
 
   useEffect(() => {
     if (settings.notificationsEnabled && permission === 'granted') checkReminders();
@@ -55,6 +62,10 @@ export default function Settings() {
           )}
         </Card>
 
+        <div id="backup" className="scroll-mt-4">
+          <BackupCard />
+        </div>
+
         <Card title="العرض">
           <div>
             <p className="label">المظهر</p>
@@ -93,10 +104,8 @@ export default function Settings() {
 
         <Card title="قريباً">
           <ul className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
-            <li>• النسخ الاحتياطي والاستعادة (JSON)</li>
             <li>• قفل التطبيق برمز أو بصمة</li>
             <li>• سجل المطالبات وتصدير PDF</li>
-            <li>• مسح QR الفاتورة الإلكترونية والباركود وقراءة الفاتورة بالكاميرا</li>
           </ul>
         </Card>
 

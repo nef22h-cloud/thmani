@@ -39,5 +39,7 @@ export const DEFAULT_SETTINGS = {
   expiringThresholdDays: 30,
   notificationsEnabled: false,
   showHijri: false,
-  theme: 'system', // system | light | dark
+  theme: 'system',
+  lastBackupAt: null,
+  backupReminderDismissedAt: null, // system | light | dark
 };

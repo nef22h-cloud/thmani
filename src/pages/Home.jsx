@@ -3,14 +3,15 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { listWarranties } from '../db/warrantyRepo.js';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { needsBackupReminder } from '../lib/backup.js';
 import { CATEGORIES, STATUS_LABELS } from '../lib/constants.js';
 import { formatMoney } from '../lib/format.js';
 import { getStatus, sortByExpiry, summarize } from '../lib/warranty.js';
 import WarrantyCard from '../components/WarrantyCard.jsx';
-import { SearchIcon, ShieldIcon } from '../components/Icons.jsx';
+import { CloudIcon, SearchIcon, ShieldIcon, XIcon } from '../components/Icons.jsx';
 
 export default function Home() {
-  const { settings } = useSettings();
+  const { settings, update } = useSettings();
   const warranties = useLiveQuery(listWarranties, []);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -28,6 +29,17 @@ export default function Home() {
     });
     return sortByExpiry(list, settings);
   }, [warranties, settings, query, status, category]);
+
+  const showBackupReminder = useMemo(
+    () =>
+      needsBackupReminder({
+        count: warranties?.length ?? 0,
+        lastBackupAt: settings.lastBackupAt,
+        dismissedAt: settings.backupReminderDismissedAt,
+        lastChangeAt: (warranties ?? []).reduce((m, w) => (w.updatedAt > m ? w.updatedAt : m), ''),
+      }),
+    [warranties, settings.lastBackupAt, settings.backupReminderDismissedAt]
+  );
 
   if (warranties === undefined) return null; // يحمّل
 
@@ -48,6 +60,10 @@ export default function Home() {
         <Stat label="قرب ينتهي" value={summary.expiring} tone="text-amber-600 dark:text-amber-400" />
         <Stat label="قيمة المضمون" value={formatMoney(summary.totalValue).replace(' ر.س', '')} unit="ر.س" />
       </section>
+
+      {showBackupReminder && (
+        <BackupReminder neverBackedUp={!settings.lastBackupAt} onDismiss={() => update({ backupReminderDismissedAt: new Date().toISOString() })} />
+      )}
 
       {warranties.length === 0 ? (
         <EmptyState />
@@ -135,6 +151,21 @@ function EmptyState() {
         أضف أول فاتورة، وضماني بيحسب لك المدة وينبهك قبل ما ينتهي الضمان.
       </p>
       <Link to="/add" className="btn-primary mt-6 w-full">أضف أول ضمان</Link>
+    </div>
+  );
+}
+
+function BackupReminder({ neverBackedUp, onDismiss }) {
+  return (
+    <div className="mt-4 flex items-center gap-3 rounded-2xl bg-sky-50 p-3 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:ring-sky-900">
+      <CloudIcon className="size-6 shrink-0 text-sky-700 dark:text-sky-300" />
+      <Link to="/settings#backup" className="flex-1 text-sm text-sky-900 dark:text-sky-100">
+        <span className="block font-semibold">{neverBackedUp ? 'خذ نسخة احتياطية' : 'عندك تعديلات ما انحفظت في نسخة'}</span>
+        <span className="block text-sky-800/80 dark:text-sky-200/80">عشان ما تضيع فواتيرك لو غيّرت جوالك</span>
+      </Link>
+      <button onClick={onDismiss} className="flex size-9 items-center justify-center rounded-full text-sky-700 dark:text-sky-300" aria-label="إخفاء التذكير">
+        <XIcon className="size-5" />
+      </button>
     </div>
   );
 }
