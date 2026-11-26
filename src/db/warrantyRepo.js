@@ -45,15 +45,18 @@ export async function saveWarranty(input, images = { added: [], removedIds: [] }
 
 export async function deleteWarranty(id) {
   id = Number(id);
-  return db.transaction('rw', db.warranties, db.images, db.deletions, async () => {
+  return db.transaction('rw', db.warranties, db.images, db.claims, db.deletions, async () => {
     const w = await db.warranties.get(id);
     if (!w) return;
     const imgs = await db.images.where('warrantyId').equals(id).toArray();
+    const claims = await db.claims.where('warrantyId').equals(id).toArray();
     await db.images.bulkDelete(imgs.map((i) => i.id));
+    await db.claims.bulkDelete(claims.map((c) => c.id));
     await db.warranties.delete(id);
     await db.deletions.bulkAdd([
       { table: 'warranties', syncId: w.syncId, deletedAt: now() },
       ...imgs.map((i) => ({ table: 'images', syncId: i.syncId, deletedAt: now() })),
+      ...claims.map((c) => ({ table: 'claims', syncId: c.syncId, deletedAt: now() })),
     ]);
   });
 }

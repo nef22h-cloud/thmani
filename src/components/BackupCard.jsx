@@ -140,6 +140,7 @@ function RestoreDialog({ summary, hasData, showHijri, onMerge, onReplace, onCanc
         <ul className="space-y-1 rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
           <li>• {countLabel(summary.warranties, 'ضمان')}</li>
           <li>• {countLabel(summary.images, 'صورة')}</li>
+          {summary.claims > 0 && <li>• {countLabel(summary.claims, 'مطالبة')}</li>}
           {summary.exportedAt && <li>• تاريخ النسخة: {formatDate(summary.exportedAt.slice(0, 10), { hijri: showHijri })}</li>}
         </ul>
         {hasData ? (
@@ -170,6 +171,7 @@ export function countLabel(n, word) {
   const forms = {
     'ضمان': ['ضمان واحد', 'ضمانين', 'ضمانات'],
     'صورة': ['صورة وحدة', 'صورتين', 'صور'],
+    'مطالبة': ['مطالبة وحدة', 'مطالبتين', 'مطالبات'],
   }[word];
   if (n === 0) return `0 ${word}`;
   if (n === 1) return forms[0];

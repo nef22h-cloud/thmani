@@ -8,6 +8,8 @@ import Settings from './pages/Settings.jsx';
 import ScanQR from './pages/ScanQR.jsx';
 import ScanBarcode from './pages/ScanBarcode.jsx';
 import ScanInvoice from './pages/ScanInvoice.jsx';
+import Claims from './pages/Claims.jsx';
+import ClaimForm from './pages/ClaimForm.jsx';
 import NotFound from './pages/NotFound.jsx';
 
 export default function App() {
@@ -22,6 +24,9 @@ export default function App() {
         <Route path="add/ocr" element={<ScanInvoice />} />
         <Route path="w/:id" element={<WarrantyDetails />} />
         <Route path="w/:id/edit" element={<WarrantyForm />} />
+        <Route path="w/:id/claims/new" element={<ClaimForm />} />
+        <Route path="claims" element={<Claims />} />
+        <Route path="claims/:cid" element={<ClaimForm />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
       </Route>

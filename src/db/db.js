@@ -16,6 +16,11 @@ db.version(1).stores({
   deletions: '++id, table, syncId, deletedAt',
 });
 
+// الإصدار 2: سجل المطالبات (كل مطالبة مربوطة بضمان)
+db.version(2).stores({
+  claims: '++id, &syncId, warrantyId, date, status, updatedAt',
+});
+
 export const uuid = () =>
   globalThis.crypto?.randomUUID?.() ??
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {

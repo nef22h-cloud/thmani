@@ -8,13 +8,13 @@ export const BACKUP_APP = 'damani';
 export const BACKUP_VERSION = 1;
 
 /** إعدادات خاصة بالجهاز ما ننقلها لجهاز ثاني */
-const DEVICE_SETTINGS = ['notificationsEnabled', 'lastBackupAt', 'backupReminderDismissedAt'];
+const DEVICE_SETTINGS = ['notificationsEnabled', 'lastBackupAt', 'backupReminderDismissedAt', 'lock'];
 
 /**
  * يبني كائن النسخة.
  * images: [{ syncId, warrantyId, kind, createdAt, type, data }] (data = base64 بدون بادئة)
  */
-export function buildBackup({ warranties, images, settings, exportedAt = new Date().toISOString() }) {
+export function buildBackup({ warranties, images, claims = [], settings, exportedAt = new Date().toISOString() }) {
   const byId = new Map(warranties.map((w) => [w.id, w.syncId]));
   return {
     app: BACKUP_APP,
@@ -24,6 +24,9 @@ export function buildBackup({ warranties, images, settings, exportedAt = new Dat
     images: images
       .filter((img) => byId.has(img.warrantyId))
       .map(({ id, warrantyId, ...img }) => ({ ...img, warrantySyncId: byId.get(warrantyId) })),
+    claims: claims
+      .filter((c) => byId.has(c.warrantyId))
+      .map(({ id, warrantyId, ...c }) => ({ ...c, warrantySyncId: byId.get(warrantyId) })),
     settings: omit(settings ?? {}, DEVICE_SETTINGS),
   };
 }
@@ -43,6 +46,9 @@ export function parseBackup(text) {
     throw new BackupError('النسخة من إصدار أحدث من التطبيق. حدّث التطبيق وحاول مرة ثانية.');
   }
   if (!Array.isArray(data.warranties) || !Array.isArray(data.images)) throw new BackupError('الملف ناقص أو تالف.');
+  // المطالبات انضافت بعد أول إصدار، فالنسخ القديمة ما فيها
+  if (data.claims != null && !Array.isArray(data.claims)) throw new BackupError('الملف ناقص أو تالف.');
+  data.claims = (data.claims ?? []).filter((c) => c?.syncId && c.warrantySyncId);
   const bad = data.warranties.find((w) => !w?.syncId || !w.productName || !w.purchaseDate);
   if (bad) throw new BackupError('في الملف ضمانات بياناتها ناقصة. الملف ممكن يكون تالف.');
   return data;
@@ -53,6 +59,7 @@ export function summarizeBackup(data) {
   return {
     warranties: data.warranties.length,
     images: data.images.length,
+    claims: data.claims?.length ?? 0,
     exportedAt: data.exportedAt ?? null,
   };
 }

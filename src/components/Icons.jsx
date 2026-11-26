@@ -31,3 +31,6 @@ export const ClaimIcon = I(<><path d="M9 4h6l1 2h3v15H5V6h3z" /><path d="m9 13 2
 export const DownloadIcon = I(<><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>);
 export const UploadIcon = I(<><path d="M12 15V4M7 9l5-5 5 5" /><path d="M5 20h14" /></>);
 export const CloudIcon = I(<><path d="M7 18a4 4 0 0 1-.6-8A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z" /><path d="m9.5 13.5 2 2 3.5-3.5" /></>);
+export const LockIcon = I(<><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>);
+export const FingerprintIcon = I(<><path d="M12 11v3a8 8 0 0 1-1.5 4.5" /><path d="M8.5 8.5A5 5 0 0 1 17 12v1.5a12 12 0 0 1-.7 4" /><path d="M5.5 15.5A10 10 0 0 1 5 12a7 7 0 0 1 11.5-5.3" /><path d="M9 12a3 3 0 0 1 6 0v1a14 14 0 0 1-1.2 5.8" /></>);
+export const DeleteKeyIcon = I(<><path d="M20 6H9l-6 6 6 6h11z" /><path d="m12 9 6 6M18 9l-6 6" /></>);

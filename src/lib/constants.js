@@ -39,7 +39,9 @@ export const DEFAULT_SETTINGS = {
   expiringThresholdDays: 30,
   notificationsEnabled: false,
   showHijri: false,
-  theme: 'system',
+  theme: 'system', // system | light | dark
   lastBackupAt: null,
-  backupReminderDismissedAt: null, // system | light | dark
+  backupReminderDismissedAt: null,
+  // قفل التطبيق (خاص بالجهاز، ما ينتقل في النسخة الاحتياطية)
+  lock: null,
 };

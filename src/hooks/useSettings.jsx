@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { loadSettings, updateSettings } from '../db/settingsRepo.js';
 import { DEFAULT_SETTINGS } from '../lib/constants.js';
 
-const SettingsContext = createContext({ settings: DEFAULT_SETTINGS, update: async () => {} });
+const SettingsContext = createContext({ settings: DEFAULT_SETTINGS, ready: false, update: async () => {} });
 
 export function SettingsProvider({ children }) {
   const loaded = useLiveQuery(loadSettings, []);
@@ -28,7 +28,7 @@ export function SettingsProvider({ children }) {
     return () => mq.removeEventListener('change', apply);
   }, [loaded, settings.theme]);
 
-  return <SettingsContext.Provider value={{ settings, update: updateSettings }}>{children}</SettingsContext.Provider>;
+  return <SettingsContext.Provider value={{ settings, ready: Boolean(loaded), update: updateSettings }}>{children}</SettingsContext.Provider>;
 }
 
 export const useSettings = () => useContext(SettingsContext);
