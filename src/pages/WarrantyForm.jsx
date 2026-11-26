@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { clearDraft, peekDraft } from '../services/draft.js';
 import PageHeader from '../components/PageHeader.jsx';
 import ImagePicker from '../components/ImagePicker.jsx';
 import NotFound from './NotFound.jsx';
@@ -21,7 +22,18 @@ const EMPTY = {
   warrantyUnit: 'years',
   returnDays: 7,
   serialNumber: '',
+  barcode: '',
+  vatNumber: '',
+  vatAmount: null,
+  invoiceTime: '',
   notes: '',
+};
+
+const SOURCE_LABELS = {
+  qr: 'من QR الفاتورة الإلكترونية',
+  'ocr+qr': 'من صورة الفاتورة و QR',
+  ocr: 'من صورة الفاتورة',
+  barcode: 'من باركود المنتج',
 };
 
 const QUICK_DURATIONS = [
@@ -39,8 +51,17 @@ export default function WarrantyForm() {
   const navigate = useNavigate();
   const { settings } = useSettings();
 
-  const [form, setForm] = useState(EMPTY);
-  const [images, setImages] = useState([]); // [{key, kind, blob, id?}]
+  // بيانات جاية من شاشات المسح (QR / باركود / OCR)
+  const [draft] = useState(() => (isEdit ? null : peekDraft()));
+  useEffect(() => {
+    clearDraft();
+  }, []);
+  const autoFilled = new Set(Object.keys(draft?.prefill ?? {}).filter((k) => k !== 'vatAmount' && k !== 'invoiceTime'));
+
+  const [form, setForm] = useState(() => ({ ...EMPTY, ...(draft?.prefill ?? {}) }));
+  const [images, setImages] = useState(() =>
+    (draft?.images ?? []).map((img) => ({ ...img, key: `new-${++tempKey}` }))
+  ); // [{key, kind, blob, id?}]
   const [removedIds, setRemovedIds] = useState([]);
   const [loading, setLoading] = useState(isEdit);
   const [missing, setMissing] = useState(false);
@@ -97,6 +118,8 @@ export default function WarrantyForm() {
         storeBranch: form.storeBranch.trim(),
         storePhone: form.storePhone.trim(),
         serialNumber: form.serialNumber.trim(),
+        barcode: form.barcode.trim(),
+        vatNumber: form.vatNumber.trim(),
         notes: form.notes.trim(),
       };
       if (isEdit) data.id = Number(id);
@@ -117,11 +140,12 @@ export default function WarrantyForm() {
 
   return (
     <>
-      <PageHeader title={isEdit ? 'تعديل الضمان' : 'إدخال يدوي'} back />
+      <PageHeader title={isEdit ? 'تعديل الضمان' : draft ? 'مراجعة البيانات' : 'إدخال يدوي'} back />
       <form onSubmit={handleSubmit} noValidate className="space-y-5 px-4">
+        {draft && <DraftBanner draft={draft} count={autoFilled.size} />}
         <Section title="المنتج">
-          <Field label="اسم المنتج *" error={errors.productName}>
-            <input className="input" value={form.productName} onChange={set('productName')} placeholder="مثلاً: غسالة سامسونج 9 كيلو" aria-invalid={!!errors.productName} autoFocus={!isEdit} />
+          <Field label="اسم المنتج *" error={errors.productName} auto={autoFilled.has('productName')}>
+            <input className="input" value={form.productName} onChange={set('productName')} placeholder="مثلاً: غسالة سامسونج 9 كيلو" aria-invalid={!!errors.productName} autoFocus={!isEdit && !draft?.prefill?.productName} />
           </Field>
           <Field label="التصنيف" group>
             <div className="grid grid-cols-3 gap-2">
@@ -143,31 +167,39 @@ export default function WarrantyForm() {
               ))}
             </div>
           </Field>
-          <Field label="الرقم التسلسلي (Serial Number)">
-            <input className="input" dir="ltr" value={form.serialNumber} onChange={set('serialNumber')} placeholder="SN-..." />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="الرقم التسلسلي">
+              <input className="input" dir="ltr" value={form.serialNumber} onChange={set('serialNumber')} placeholder="SN-..." />
+            </Field>
+            <Field label="الباركود" auto={autoFilled.has('barcode')}>
+              <input className="input num" dir="ltr" inputMode="numeric" value={form.barcode} onChange={set('barcode')} placeholder="628..." />
+            </Field>
+          </div>
         </Section>
 
         <Section title="الشراء">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="تاريخ الشراء *" error={errors.purchaseDate}>
+            <Field label="تاريخ الشراء *" error={errors.purchaseDate} auto={autoFilled.has('purchaseDate')}>
               <input type="date" className="input" value={form.purchaseDate} max={toISODate(today())} onChange={set('purchaseDate')} aria-invalid={!!errors.purchaseDate} />
             </Field>
-            <Field label="السعر (ر.س)" error={errors.price}>
+            <Field label="السعر (ر.س)" error={errors.price} auto={autoFilled.has('price')}>
               <input type="number" inputMode="decimal" min="0" step="0.01" className="input num" value={form.price} onChange={set('price')} placeholder="0" aria-invalid={!!errors.price} />
             </Field>
           </div>
-          <Field label="اسم المتجر">
+          <Field label="اسم المتجر" auto={autoFilled.has('storeName')}>
             <input className="input" value={form.storeName} onChange={set('storeName')} placeholder="مثلاً: إكسترا" />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="الفرع">
               <input className="input" value={form.storeBranch} onChange={set('storeBranch')} placeholder="الرياض - العليا" />
             </Field>
-            <Field label="رقم التواصل">
+            <Field label="رقم التواصل" auto={autoFilled.has('storePhone')}>
               <input type="tel" inputMode="tel" dir="ltr" className="input text-right" value={form.storePhone} onChange={set('storePhone')} placeholder="9200xxxxx" />
             </Field>
           </div>
+          <Field label="الرقم الضريبي للمتجر" auto={autoFilled.has('vatNumber')} hint={form.vatAmount != null ? `ضريبة القيمة المضافة في الفاتورة: ${form.vatAmount} ر.س` : undefined}>
+            <input className="input num" dir="ltr" inputMode="numeric" value={form.vatNumber} onChange={set('vatNumber')} placeholder="3xxxxxxxxxxxxx3" />
+          </Field>
         </Section>
 
         <Section title="الضمان">
@@ -216,6 +248,13 @@ export default function WarrantyForm() {
           />
         </Section>
 
+        {draft?.rawText && (
+          <details className="card p-4">
+            <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-300">النص المقروء من الفاتورة</summary>
+            <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 text-xs whitespace-pre-wrap dark:bg-slate-950" dir="auto">{draft.rawText}</pre>
+          </details>
+        )}
+
         <Section title="ملاحظات">
           <textarea className="input min-h-24 py-3" value={form.notes} onChange={set('notes')} placeholder="أي تفاصيل تبي تتذكرها (مثلاً: الضمان يشمل الموتور 10 سنين)" />
         </Section>
@@ -240,12 +279,38 @@ function Section({ title, children }) {
   );
 }
 
-function Field({ label, error, hint, group, children }) {
+function fieldsLabel(n) {
+  if (n === 1) return 'حقل واحد';
+  if (n === 2) return 'حقلين';
+  if (n <= 10) return `${n} حقول`;
+  return `${n} حقل`;
+}
+
+function DraftBanner({ draft, count }) {
+  const missingInvoice = !draft.images?.some((i) => i.kind === 'invoice');
+  return (
+    <div className="rounded-2xl bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-100 dark:ring-amber-900">
+      <p className="font-semibold">
+        {count > 0 ? `عبّينا ${fieldsLabel(count)} ${SOURCE_LABELS[draft.source] ?? ''}` : 'ما قدرنا نقرأ بيانات كافية'}
+      </p>
+      <p className="mt-1 text-sm">
+        راجع الحقول المعلّمة بـ"تلقائي" وعدّلها لو فيها خطأ، وأكمل الباقي (اسم المنتج ومدة الضمان).
+        {draft.notFound && ' ما لقينا اسم المنتج في قواعد البيانات، اكتبه بنفسك.'}
+        {missingInvoice && ' لا تنسى تضيف صورة الفاتورة تحت.'}
+      </p>
+    </div>
+  );
+}
+
+function Field({ label, error, hint, group, auto, children }) {
   // group: الحقل فيه أكثر من عنصر (أزرار) فما نستخدم <label> عشان الضغط ما يفعّل أول زر
   const Tag = group ? 'div' : 'label';
   return (
     <Tag className="block" role={group ? 'group' : undefined} aria-label={group ? label : undefined}>
-      <span className="label">{label}</span>
+      <span className="label flex items-center gap-2">
+        {label}
+        {auto && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">تلقائي</span>}
+      </span>
       {children}
       {hint && !error && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
       {error && <span className="mt-1 block text-sm text-red-600 dark:text-red-400">{error}</span>}

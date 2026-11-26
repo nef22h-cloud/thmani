@@ -130,6 +130,10 @@ export default function WarrantyDetails() {
           <Row label="ينتهي الضمان" value={formatDate(w.expiryDate, { hijri })} />
           <Row label="مدة الاسترجاع" value={w.returnDays ? `${daysLabel(w.returnDays)} (حتى ${formatDate(w.returnDeadline)})` : 'لا يوجد'} />
           <Row label="الرقم التسلسلي" value={w.serialNumber} ltr />
+          {w.barcode && <Row label="الباركود" value={w.barcode} ltr />}
+          {w.vatNumber && <Row label="الرقم الضريبي" value={w.vatNumber} ltr />}
+          {w.vatAmount != null && <Row label="ضريبة القيمة المضافة" value={formatMoney(w.vatAmount)} />}
+          {w.invoiceTime && <Row label="وقت الفاتورة" value={w.invoiceTime} ltr />}
         </section>
 
         {w.notes && (

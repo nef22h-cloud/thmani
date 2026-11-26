@@ -26,6 +26,12 @@ registerRoute(
   new CacheFirst({ cacheName: 'google-fonts-files' })
 );
 
+// ملفات قارئ النص (Tesseract) من jsDelivr: نحفظها عشان OCR يشتغل بدون نت بعد أول مرة
+registerRoute(
+  ({ url }) => url.origin === 'https://cdn.jsdelivr.net' && /tesseract/.test(url.pathname),
+  new CacheFirst({ cacheName: 'ocr-engine' })
+);
+
 const show = (title, options) => self.registration.showNotification(title, options);
 
 // فحص دوري في الخلفية (Chrome/Edge على أندرويد للتطبيقات المثبتة)

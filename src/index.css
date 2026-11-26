@@ -61,3 +61,23 @@
 @utility label {
   @apply mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300;
 }
+
+/* خط المسح المتحرك داخل إطار الكاميرا */
+@keyframes scan {
+  0%,
+  100% {
+    top: 4%;
+  }
+  50% {
+    top: 94%;
+  }
+}
+.scan-line {
+  position: absolute;
+  animation: scan 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scan-line {
+    animation: none;
+  }
+}

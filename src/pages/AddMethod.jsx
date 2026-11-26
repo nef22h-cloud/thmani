@@ -3,9 +3,9 @@ import PageHeader from '../components/PageHeader.jsx';
 import { BarcodeIcon, CameraIcon, EditIcon, QrIcon } from '../components/Icons.jsx';
 
 const METHODS = [
-  { to: '/add/qr', icon: QrIcon, title: 'مسح QR الفاتورة', desc: 'يقرأ بيانات الفاتورة الإلكترونية تلقائياً', soon: true },
-  { to: '/add/barcode', icon: BarcodeIcon, title: 'مسح باركود المنتج', desc: 'يحفظ رقم الباركود واسم المنتج', soon: true },
-  { to: '/add/ocr', icon: CameraIcon, title: 'تصوير الفاتورة', desc: 'يقرأ التاريخ والمبلغ والمتجر من الصورة', soon: true },
+  { to: '/add/qr', icon: QrIcon, title: 'مسح QR الفاتورة', desc: 'يقرأ بيانات الفاتورة الإلكترونية تلقائياً' },
+  { to: '/add/barcode', icon: BarcodeIcon, title: 'مسح باركود المنتج', desc: 'يحفظ رقم الباركود واسم المنتج' },
+  { to: '/add/ocr', icon: CameraIcon, title: 'تصوير الفاتورة', desc: 'يقرأ التاريخ والمبلغ والمتجر من الصورة' },
   { to: '/add/manual', icon: EditIcon, title: 'إدخال يدوي', desc: 'عبّي البيانات بنفسك وارفع صورة الفاتورة' },
 ];
 

@@ -24,7 +24,7 @@ export default function Home() {
       if (status !== 'all' && getStatus(w, settings) !== status) return false;
       if (category !== 'all' && w.category !== category) return false;
       if (!q) return true;
-      return [w.productName, w.storeName, w.storeBranch, w.serialNumber].some((f) => f?.toLowerCase().includes(q));
+      return [w.productName, w.storeName, w.storeBranch, w.serialNumber, w.barcode].some((f) => f?.toLowerCase().includes(q));
     });
     return sortByExpiry(list, settings);
   }, [warranties, settings, query, status, category]);
