@@ -2,7 +2,7 @@
 
 export function zatcaToPrefill(inv) {
   const p = {
-    storeName: inv.sellerName,
+    storeName: cleanSellerName(inv.sellerName),
     vatNumber: inv.vatNumber,
     purchaseDate: inv.date,
     invoiceTime: inv.time,
@@ -29,6 +29,16 @@ export function ocrToPrefill(r) {
     returnDays: r.returnDays,
     notes: r.model ? `الموديل: ${r.model}` : null,
   });
+}
+
+/** يشيل الصفة القانونية من اسم البائع: "شركة حلول نون ... شركة شخص واحد" → "شركة حلول نون ..." */
+export function cleanSellerName(name) {
+  if (!name) return name;
+  const out = name
+    .replace(/[\s\-–(]*(شركة\s+)?(شخص\s+واحد|ذات\s+(ال)?مسؤولية\s+(ال)?محدودة|ذ\.?\s*م\.?\s*م|ش\.?\s*م\.?\s*م|مساهمة(\s+مقفلة|\s+عامة)?|توصية\s+بسيطة|(ال)?مختلطة)\)?\s*$/u, '')
+    .replace(/[\s,،\-–]+$/u, '')
+    .trim();
+  return out.length >= 2 ? out : name;
 }
 
 /** يدمج: بيانات QR (دقيقة) تغلب على OCR (تخمين) */

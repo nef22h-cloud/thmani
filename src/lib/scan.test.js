@@ -164,3 +164,11 @@ test('OCR: ألف ساقطة وسطر باركود قبل الكمية', () => {
   assert.equal(r.productName, 'شاشة تلفزيون سمارت 55 بوصة');
   assert.equal(r.storeName, null);
 });
+
+test('اسم البائع بدون الصفة القانونية', async () => {
+  const { cleanSellerName } = await import('./prefill.js');
+  assert.equal(cleanSellerName('شركة حلول نون للتسويق الإلكتروني شركة شخص واحد'), 'شركة حلول نون للتسويق الإلكتروني');
+  assert.equal(cleanSellerName('شركة إكسترا للتجارة ذات مسؤولية محدودة'), 'شركة إكسترا للتجارة');
+  assert.equal(cleanSellerName('مكتبة جرير (مساهمة عامة)'), 'مكتبة جرير');
+  assert.equal(cleanSellerName('متجر النخبة'), 'متجر النخبة');
+});
