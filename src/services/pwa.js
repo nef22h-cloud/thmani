@@ -50,6 +50,6 @@ export async function sendTestNotification() {
     body: 'كذا بتوصلك التنبيهات قبل ما ينتهي أي ضمان.',
     dir: 'rtl',
     lang: 'ar',
-    icon: '/icons/icon-192.png',
+    icon: `${import.meta.env.BASE_URL}icons/icon-192.png`,
   });
 }

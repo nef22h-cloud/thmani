@@ -7,6 +7,8 @@ import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { clientsClaim } from 'workbox-core';
 import { runReminders } from './services/reminderRunner.js';
 
+const BASE = import.meta.env.BASE_URL;
+
 self.skipWaiting();
 clientsClaim();
 
@@ -14,7 +16,7 @@ cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
 // كل روابط التطبيق ترجع index.html (عشان يشتغل بدون نت على أي صفحة)
-registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html')));
+registerRoute(new NavigationRoute(createHandlerBoundToURL(`${BASE}index.html`)));
 
 // الخطوط من Google Fonts
 registerRoute(
@@ -51,7 +53,7 @@ self.addEventListener('push', (event) => {
   }
   event.waitUntil(
     payload.title
-      ? show(payload.title, { body: payload.body, dir: 'rtl', lang: 'ar', icon: '/icons/icon-192.png', data: payload.data })
+      ? show(payload.title, { body: payload.body, dir: 'rtl', lang: 'ar', icon: `${BASE}icons/icon-192.png`, data: payload.data })
       : runReminders(show) // push "صامت" = افحص التنبيهات محلياً
   );
 });
@@ -59,7 +61,7 @@ self.addEventListener('push', (event) => {
 // الضغط على الإشعار يفتح صفحة الضمان
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url ?? '/';
+  const url = event.notification.data?.url ?? BASE;
   event.waitUntil(
     (async () => {
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
