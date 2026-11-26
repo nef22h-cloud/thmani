@@ -6,10 +6,12 @@ import { DEFAULT_SETTINGS } from '../lib/constants.js';
 const SettingsContext = createContext({ settings: DEFAULT_SETTINGS, update: async () => {} });
 
 export function SettingsProvider({ children }) {
-  const settings = useLiveQuery(loadSettings, [], DEFAULT_SETTINGS);
+  const loaded = useLiveQuery(loadSettings, []);
+  const settings = loaded ?? DEFAULT_SETTINGS;
 
-  // تطبيق الوضع الليلي
+  // تطبيق الوضع الليلي (ننتظر تحميل الإعدادات عشان ما نطبق الافتراضي ونسبب وميض)
   useEffect(() => {
+    if (!loaded) return;
     const mq = matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
       const dark = settings.theme === 'dark' || (settings.theme === 'system' && mq.matches);
@@ -24,7 +26,7 @@ export function SettingsProvider({ children }) {
     }
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
-  }, [settings.theme]);
+  }, [loaded, settings.theme]);
 
   return <SettingsContext.Provider value={{ settings, update: updateSettings }}>{children}</SettingsContext.Provider>;
 }
