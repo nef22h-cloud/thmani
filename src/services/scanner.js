@@ -3,7 +3,8 @@
 
 let zxingPromise;
 const loadZxing = () =>
-  (zxingPromise ??= Promise.all([import('@zxing/browser'), import('@zxing/library')]).then(([browser, lib]) => ({ ...browser, ...lib })));
+  // ملاحظة: @zxing/library فيها كلاس قديم بنفس اسم BrowserMultiFormatReader، فنخلي نسخة @zxing/browser هي الغالبة
+  (zxingPromise ??= Promise.all([import('@zxing/browser'), import('@zxing/library')]).then(([browser, lib]) => ({ ...lib, ...browser })));
 
 export const QR_FORMATS = ['QR_CODE'];
 export const PRODUCT_FORMATS = ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39', 'CODE_93', 'ITF', 'CODABAR'];
@@ -36,28 +37,76 @@ export async function startCameraScan(video, formats, onResult) {
   return controls;
 }
 
-/** يقرأ QR/باركود من ملف صورة. يرجع النص أو null */
+/**
+ * يقرأ QR/باركود من ملف صورة. يرجع النص أو null.
+ * صور الجوال كبيرة وفيها الكود صغير، فنجرب بالترتيب:
+ * قارئ الجهاز المدمج (لو متوفر) ← الصورة كاملة بمقاسات مختلفة ← قصّات (أرباع ونص) بدقتها الأصلية.
+ */
 export async function scanImage(blob, formats) {
-  const reader = await createReader(formats);
-  const url = URL.createObjectURL(blob);
+  let bmp;
   try {
-    const result = await reader.decodeFromImageUrl(url);
-    return result.getText();
+    bmp = await createImageBitmap(blob);
   } catch {
-    // محاولة ثانية بصورة مصغّرة؛ الصور الكبيرة جداً أحياناً تفشل
-    try {
-      const small = await downscale(blob, 1200);
-      const url2 = URL.createObjectURL(small);
+    return null;
+  }
+  try {
+    const native = await nativeDetect(bmp, formats);
+    if (native) return native;
+    const reader = await createReader(formats);
+    const { width: W, height: H } = bmp;
+    const attempts = [
+      [0, 0, 1, 1, 2400],
+      [0, 0, 1, 1, 1200],
+      [0, 0, 1, 1, 800],
+      // أرباع متداخلة (QR الفاتورة غالباً في زاوية)
+      [0, 0, 0.6, 0.6, 1600],
+      [0.4, 0, 0.6, 0.6, 1600],
+      [0, 0.4, 0.6, 0.6, 1600],
+      [0.4, 0.4, 0.6, 0.6, 1600],
+      [0, 0, 1, 0.55, 2000],
+      [0, 0.45, 1, 0.55, 2000],
+      [0.2, 0.2, 0.6, 0.6, 1600],
+    ];
+    for (const [x, y, w, h, max] of attempts) {
+      const canvas = crop(bmp, x * W, y * H, w * W, h * H, max);
       try {
-        return (await reader.decodeFromImageUrl(url2)).getText();
-      } finally {
-        URL.revokeObjectURL(url2);
+        return reader.decodeFromCanvas(canvas).getText();
+      } catch {
+        /* نجرب اللي بعده */
       }
-    } catch {
-      return null;
+      // نعطي المتصفح فرصة يتنفس بين المحاولات
+      await new Promise((r) => setTimeout(r, 0));
     }
+    return null;
   } finally {
-    URL.revokeObjectURL(url);
+    bmp.close?.();
+  }
+}
+
+function crop(bmp, sx, sy, sw, sh, max) {
+  const s = Math.min(2, max / Math.max(sw, sh));
+  const c = document.createElement('canvas');
+  c.width = Math.round(sw * s);
+  c.height = Math.round(sh * s);
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(bmp, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+const NATIVE_FORMATS = { QR_CODE: 'qr_code', EAN_13: 'ean_13', EAN_8: 'ean_8', UPC_A: 'upc_a', UPC_E: 'upc_e', CODE_128: 'code_128', CODE_39: 'code_39', CODE_93: 'code_93', ITF: 'itf', CODABAR: 'codabar' };
+
+/** BarcodeDetector المدمج في كروم أندرويد (أقوى مع صور الكاميرا) */
+async function nativeDetect(bmp, formats) {
+  if (!('BarcodeDetector' in window)) return null;
+  try {
+    const supported = await window.BarcodeDetector.getSupportedFormats();
+    const wanted = formats.map((f) => NATIVE_FORMATS[f]).filter((f) => supported.includes(f));
+    if (!wanted.length) return null;
+    const codes = await new window.BarcodeDetector({ formats: wanted }).detect(bmp);
+    return codes[0]?.rawValue ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -69,16 +118,6 @@ export function captureFrame(video, quality = 0.85) {
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   return new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
-}
-
-async function downscale(blob, max) {
-  const bmp = await createImageBitmap(blob);
-  const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
-  const c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * s);
-  c.height = Math.round(bmp.height * s);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  return new Promise((res) => c.toBlob(res, 'image/png'));
 }
 
 export function cameraErrorMessage(err) {

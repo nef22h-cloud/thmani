@@ -49,8 +49,7 @@ export function pickPurchaseDate(text, todayISO) {
 }
 
 const TOTAL_KEYWORDS = [
-  /الإجمالي\s*(شامل|مع)\s*(الضريبة|ض)/,
-  /الاجمالي\s*(شامل|مع)\s*(الضريبة|ض)/,
+  /(الإجمالي|الاجمالي|إجمالي|اجمالي)\s*(بعد|شامل|مع)\s*(الضريبة|الضريبه|ض)/,
   /(المبلغ|الصافي|المجموع)\s*(الإجمالي|الاجمالي|المستحق|الكلي)/,
   /grand\s*total/i,
   /total\s*(amount|due|incl|with)/i,
@@ -74,6 +73,31 @@ function amountsIn(line) {
  * لو ما لقينا، نأخذ أكبر مبلغ بفاصلة عشرية في الفاتورة.
  */
 export function pickTotal(text) {
+  const guess = pickTotalRaw(text);
+  // تحقق: الإجمالي = الضريبة × 23/3 تقريباً (ضريبة 15%). OCR أحياناً يلصق رقم زيادة (7190 بدل 190)
+  const vat = pickVatAmount(text);
+  if (vat) {
+    const expected = (vat * 23) / 3;
+    const near = (n) => n != null && Math.abs(n - expected) <= Math.max(0.05, expected * 0.002) + 0.01;
+    if (near(guess)) return guess;
+    const all = amountsIn(normalizeDigits(text).replace(/\b\d{10,}\b/g, '')).filter(near);
+    if (all.length) return Math.max(...all);
+  }
+  return guess;
+}
+
+/** مبلغ ضريبة القيمة المضافة */
+export function pickVatAmount(text) {
+  for (const line of normalizeDigits(text).split(/\n/)) {
+    if (!/(ضريبة|ضريبه|ضرييه|ضريية)\s*القيمة|\bvat\b|tax\s*amount/i.test(line) || /شامل|incl|رقم|الرقم|no\b/i.test(line)) continue;
+    // نتجاهل نسبة الضريبة (15% أو 9615 لما OCR يقرأ % كأرقام)
+    const nums = [...line.matchAll(/\d{1,3}(?:,\d{3})*\.\d{2}/g)].map((m) => Number(m[0].replace(/,/g, '')));
+    if (nums.length) return nums[nums.length - 1];
+  }
+  return null;
+}
+
+function pickTotalRaw(text) {
   const lines = normalizeDigits(text).split(/\n/).map((l) => l.trim());
   for (const re of TOTAL_KEYWORDS) {
     for (let i = 0; i < lines.length; i++) {
@@ -97,21 +121,32 @@ export function pickVatNumber(text) {
 
 /** رقم الجوال/الهاتف السعودي (جوال 05، أرضي 011-017، موحّد 9200، مجاني 800) */
 export function pickPhone(text) {
-  const t = normalizeDigits(text).replace(/(\d)[\s-](?=\d)/g, '$1');
-  const m = t.match(/(?:\+?966|0)5\d{8}(?!\d)|(?<!\d)9200\d{5}(?!\d)|(?<!\d)800\d{7}(?!\d)|(?<!\d)(?:\+?966|0)1[1-7]\d{7}(?!\d)/);
-  return m?.[0] ?? null;
+  const re = /(?:\+?966|0)5\d{8}(?!\d)|(?<!\d)9200\d{5}(?!\d)|(?<!\d)800\d{7}(?!\d)|(?<!\d)(?:\+?966|0)1[1-7]\d{7}(?!\d)/;
+  const t = normalizeDigits(text);
+  // أولاً كما هو، وبعدين بعد دمج المجموعات ("011 234 5678")
+  return t.match(re)?.[0] ?? t.replace(/(\d)[\s-](?=\d)/g, '$1').match(re)?.[0] ?? null;
 }
 
 const STORE_STOPWORDS = /فرع|عنوان|فاتورة|ضريبية|مبسطة|tax|invoice|simplified|receipt|إيصال|الرقم|رقم|vat|cr\b|سجل|تاريخ|date|tel|هاتف|جوال|www|http|@|\d{4,}/i;
 
-/** اسم المتجر: عادةً من أول الأسطر، أول سطر "نصي" ليس عنوان الفاتورة */
+const COMPANY_RE = /(شركة|شركه|مؤسسة|مؤسسه|متجر|مكتبة|محل|محلات|معرض|مركز|صيدلية|سوبر ?ماركت|هايبر|مجموعة)\s+[\p{Script=Arabic}\s]{2,}|[\p{Script=Arabic}\s]{2,}(للتجارة|للتجاره|للنجارة|التجارية|للإلكترونيات|للالكترونيات|المحدودة)/u;
+
+/** اسم المتجر: سطر فيه "شركة/مؤسسة/... للتجارة"، وإلا أول سطر نصي من أول الفاتورة */
 export function pickStoreName(text) {
-  const lines = text.split(/\n/).map((l) => l.replace(/[|*_=~#]+/g, ' ').replace(/\s+/g, ' ').trim());
+  const lines = normalizeDigits(text).split(/\n/).map((l) => l.replace(/[|*_=~#©®“”"»«]+/g, ' ').replace(/\s+/g, ' ').trim());
+  // نبحث في أول 30 سطر لأن خلفية الصورة (طاولة، سيارة...) تطلع أسطر ضوضاء قبل الفاتورة
+  for (const line of lines.slice(0, 30)) {
+    const m = line.match(COMPANY_RE);
+    if (m && !/فاتورة|ضريبية/.test(m[0])) return m[0].replace(/\s+/g, ' ').trim();
+  }
   for (const line of lines.slice(0, 8)) {
     if (line.length < 2 || line.length > 40) continue;
-    if (STORE_STOPWORDS.test(line)) continue;
+    if (STORE_STOPWORDS.test(line) || /[:：]/.test(line)) continue;
+    const arabic = (line.match(/\p{Script=Arabic}/gu) ?? []).length;
     const letters = (line.match(/[\p{L}]/gu) ?? []).length;
-    if (letters / line.length < 0.6) continue;
+    if (letters / line.length < 0.6 || arabic < letters * 0.8) continue;
+    // كلمتين عربيتين حقيقيتين على الأقل (مو ضوضاء OCR)
+    if ((line.match(/\p{Script=Arabic}{3,}/gu) ?? []).length < 1) continue;
     return line;
   }
   return null;
@@ -125,56 +160,119 @@ const lines = (text) => normalizeDigits(text).split(/\n/).map((l) => l.replace(/
 function labeled(text, labelRe) {
   for (const line of lines(text)) {
     const m = line.match(new RegExp(`(?:${labelRe.source})\\s*[:：\\-]?\\s*(.+)$`, 'i'));
-    if (m && /[\p{L}\d]/u.test(m[1])) return m[1].trim();
+    if (m && /[\p{L}\d]{2,}/u.test(m[1])) return m[1].trim();
     // أحياناً OCR يقلب ترتيب السطر فتجي القيمة قبل التسمية: "UA55X900 الموديل:"
     const r = line.match(new RegExp(`^(.+?)\\s*(?:${labelRe.source})\\s*[:：]?$`, 'i'));
-    if (r && /[\p{L}\d]/u.test(r[1])) return r[1].trim();
+    if (r && /[\p{L}\d]{2,}/u.test(r[1])) return r[1].trim();
   }
   return null;
 }
 
 /** الرقم التسلسلي */
 export function pickSerial(text) {
-  const v = labeled(text, /الرقم\s*التسلسلي|رقم\s*تسلسلي|التسلسلي|serial\s*(?:no\.?|number)?|s\s*\/\s*n|imei/);
+  const v = labeled(text, /الرقم\s*التسلسلي|رقم\s*تسلسلي|التسلسلي|serial\s*(?:no\.?|number)?|s\s*\/\s*n|imei|card\s*no\.?|رقم\s*البطاقة|رقم\s*الكرت/);
   const m = v?.replace(/\s+/g, '').match(/[A-Z0-9][A-Z0-9\-]{4,}/i);
   return m ? m[0].toUpperCase() : null;
 }
 
-const NAME_STOP = /الكمية|السعر|المجموع|الإجمالي|الاجمالي|ضريبة|الضريبة|الرقم|رقم|التاريخ|الوقت|هاتف|جوال|الضمان|الاسترجاع|الإرجاع|فاتورة|شكرا|qty|total|vat/i;
+const NAME_STOP = /باركود|الموديل|موديل|التسلسلي|الكمية|السعر|المجموع|الإجمالي|الاجمالي|ضريبة|الضريبة|الرقم|رقم|التاريخ|الوقت|هاتف|جوال|الضمان|الاسترجاع|الإرجاع|فاتورة|شكرا|qty|total|vat/i;
 
-/** اسم المنتج: من سطر "المنتج:"، وإلا السطر اللي قبل "الكمية" */
+const TABLE_HEADER = /(البيان|الصنف|الوصف|اسم الصنف|المنتج|description|item)/i;
+const TABLE_COLS = /(الكمية|الكميه|السعر|الوحدة|الإجمالي|الاجمالي|qty|price|unit|total)/gi;
+const UNIT_WORDS = /^(حبة|حبه|قطعة|قطعه|عدد|كرتون|علبة|pcs|pc|ea|each)$/i;
+
+/** أطول سلسلة كلمات (عربية/موديل) في سطر من جدول الأصناف */
+function itemTextFromRow(row) {
+  const tokens = row.split(/\s+/);
+  let best = [], cur = [];
+  for (const t of tokens) {
+    const isAr = /^\p{Script=Arabic}{2,}$/u.test(t) && !UNIT_WORDS.test(t);
+    const isModel = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{4,}$/.test(t) || /^[A-Z][a-zA-Z]{2,}$/.test(t);
+    if (isAr || (isModel && cur.length)) cur.push(t);
+    else {
+      if (cur.length > best.length) best = cur;
+      cur = [];
+    }
+  }
+  if (cur.length > best.length) best = cur;
+  if (!best.length || best.join(' ').length < 4) return null;
+  // لو في الصف رقم موديل (حروف + أرقام) نضيفه للاسم: "بطارية اسيدبلكو NS60LSMF"
+  const model = tokens.find((t) => /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{5,}$/.test(t) && !best.includes(t));
+  return model ? `${best.join(' ')} ${model}` : best.join(' ');
+}
+
+/** اسم المنتج: من سطر "المنتج: ..."، أو أول صف تحت رأس جدول الأصناف، أو السطر اللي قبل "الكمية" */
 export function pickProductName(text) {
-  const v = labeled(text, /اسم\s*المنتج|المنتج|الصنف|البيان|الوصف|item|product|description/);
-  if (v && !/^\d/.test(v)) return v.replace(/\s+\d+\s*[x×].*$/i, '').trim();
   const ls = lines(text);
+  // جدول: سطر فيه "البيان" مع أعمدة ثانية (الكمية/السعر...)
+  const hi = ls.findIndex((l) => TABLE_HEADER.test(l) && (l.match(TABLE_COLS) ?? []).length >= 2);
+  if (hi >= 0) {
+    for (const row of ls.slice(hi + 1, hi + 5)) {
+      if ((row.match(TABLE_COLS) ?? []).length >= 2 || /^(ضريبة|ضيبة|الضريبة)/.test(row)) continue;
+      const name = itemTextFromRow(row);
+      if (name && !NAME_STOP.test(name)) return name;
+    }
+  }
+  // OCR أحياناً يسقط الألف في أول الكلمة ("لمنتج")
+  const v = labeled(text, /اسم\s*المنتج|ا?لمنتج|ا?لصنف|ا?لبيان|ا?لوصف|item|product|description/);
+  if (v && !/^\d/.test(v) && (v.match(TABLE_COLS) ?? []).length < 2) return v.replace(/\s+\d+\s*[x×].*$/i, '').trim();
   const qi = ls.findIndex((l) => /الكمية|qty/i.test(l));
-  if (qi > 0 && !NAME_STOP.test(ls[qi - 1])) return ls[qi - 1];
+  if (qi > 0 && !NAME_STOP.test(ls[qi - 1]) && !/[:：]/.test(ls[qi - 1])) return ls[qi - 1];
   return null;
 }
 
 /** الموديل */
 export function pickModel(text) {
-  const v = labeled(text, /رقم\s*الموديل|الموديل|موديل|model(?:\s*no\.?)?/);
+  const v = labeled(text, /رقم\s*الموديل|ا?لموديل|موديل|model(?:\s*no\.?)?/);
   return v?.match(/[A-Z0-9][A-Z0-9\-\/]{2,}/i)?.[0].toUpperCase() ?? null;
 }
 
 /** الفرع / الموقع */
 export function pickBranch(text) {
-  const v = labeled(text, /الفرع|العنوان|الموقع|branch|address/);
+  const v = labeled(text, /ا?لفرع|ا?لعنوان|الموقع|branch|address/);
   if (v) return v;
-  const l = lines(text).slice(0, 8).find((x) => /^فرع\s/.test(x));
-  return l ? l.replace(/^فرع\s*/, '').trim() : null;
+  // "فرع شارع الحج" — ممكن تكون في نفس السطر مع "نوع الفاتورة" فنقطع عند أول كلمة معروفة
+  for (const l of lines(text).slice(0, 30)) {
+    const m = l.match(/(?:^|\s)فرع\s+(.+)$/);
+    if (!m) continue;
+    const words = [];
+    for (const w of m[1].split(/\s+/)) {
+      if (/^(نوع|رقم|التاريخ|الفاتورة|هاتف|جوال|تلفون|الرقم|سجل)/.test(w)) break;
+      if (/^[\p{Script=Arabic}\-]{2,}$/u.test(w)) words.push(w);
+    }
+    if (words.length) return words.join(' ');
+  }
+  return null;
 }
 
-const AR_COUNTS = { 'سنة': [1, 'years'], 'سنه': [1, 'years'], 'سنتين': [2, 'years'], 'سنتان': [2, 'years'], 'شهر': [1, 'months'], 'شهرين': [2, 'months'] };
+const AR_NUM_WORDS = {
+  'واحد': 1, 'واحدة': 1, 'اثنين': 2, 'اثنتين': 2, 'ثلاث': 3, 'ثلاثة': 3, 'ثلاثه': 3, 'اربع': 4, 'أربع': 4, 'اربعة': 4, 'أربعة': 4,
+  'خمس': 5, 'خمسة': 5, 'خمسه': 5, 'ست': 6, 'ستة': 6, 'سته': 6, 'سبع': 7, 'سبعة': 7, 'ثمان': 8, 'ثمانية': 8, 'تسع': 9, 'تسعة': 9,
+  'عشر': 10, 'عشرة': 10, 'عشره': 10,
+};
+const DUAL = { 'سنتين': [2, 'years'], 'سنتان': [2, 'years'], 'شهرين': [2, 'months'], 'شهران': [2, 'months'] };
+const UNIT_RE = '(سنوات|سنة|سنه|سنين|years?|yrs?|شهور|شهر|أشهر|اشهر|months?)';
 
-/** مدة الضمان → { value, unit } */
-export function pickWarranty(text) {
-  const v = labeled(text, /مدة\s*الضمان|فترة\s*الضمان|الضمان|ضمان|warranty/);
-  if (!v) return null;
-  const m = v.match(/(\d{1,3})\s*(سنوات|سنة|سنه|سنين|years?|yrs?|شهور|شهر|أشهر|اشهر|months?)/i);
+function parseDuration(v) {
+  let m = v.match(new RegExp(`(\\d{1,3})\\s*${UNIT_RE}`, 'i'));
   if (m) return { value: +m[1], unit: /شه|month/i.test(m[2]) ? 'months' : 'years' };
-  for (const [w, r] of Object.entries(AR_COUNTS)) if (new RegExp(`(^|\\s)${w}(\\s|$|\\|)`).test(v)) return { value: r[0], unit: r[1] };
+  m = v.match(new RegExp(`(${Object.keys(AR_NUM_WORDS).join('|')})\\s+${UNIT_RE}`));
+  if (m) return { value: AR_NUM_WORDS[m[1]], unit: /شه/.test(m[2]) ? 'months' : 'years' };
+  for (const [w, r] of Object.entries(DUAL)) if (v.includes(w)) return { value: r[0], unit: r[1] };
+  if (/(^|\s)(سنة|سنه)(\s+واحدة)?(\s|$|\|)/.test(v)) return { value: 1, unit: 'years' };
+  if (/(^|\s)شهر(\s+واحد)?(\s|$|\|)/.test(v)) return { value: 1, unit: 'months' };
+  return null;
+}
+
+/** مدة الضمان → { value, unit }. نفحص كل سطر فيه "ضمان" (والسطر اللي بعده لأن الجملة أحياناً تنقسم) */
+export function pickWarranty(text) {
+  const ls = lines(text);
+  for (let i = 0; i < ls.length; i++) {
+    if (!/ضمان|warranty|guarantee/i.test(ls[i])) continue;
+    const after = ls[i].replace(/^.*?(ضمان|warranty|guarantee)/i, '');
+    const d = parseDuration(after) ?? parseDuration(`${after} ${ls[i + 1] ?? ''}`);
+    if (d) return d;
+  }
   return null;
 }
 
@@ -212,14 +310,15 @@ const CATEGORY_WORDS = [
   ['phones', /جوال|ايفون|آيفون|iphone|galaxy|جالكسي|هاتف ذكي|موبايل/i],
   ['appliances', /غسالة|ثلاجة|مكيف|فرن|ميكروويف|مكنسة|نشافة|غسالة صحون|خلاط|قلاية|سخان|برادة/i],
   ['furniture', /كنب|سرير|طاولة|كرسي|دولاب|خزانة|مرتبة|مكتب خشب/i],
-  ['cars', /سيارة|إطار|اطار|بطارية سيارة|كفرات/i],
+  ['cars', /سيارة|سياره|إطار|اطار|كفر|بطارية|بطاريه|زيت محرك|مركبات|قطع غيار/i],
   ['electronics', /شاشة|تلفزيون|تلفاز|لابتوب|حاسب|كمبيوتر|سماعة|ساعة ذكية|تابلت|آيباد|ايباد|بلايستيشن|كاميرا|طابعة|راوتر|tv|laptop/i],
 ];
 
 /** تصنيف تقريبي من اسم المنتج */
-export function guessCategory(name) {
-  if (!name) return null;
-  return CATEGORY_WORDS.find(([, re]) => re.test(name))?.[0] ?? null;
+export function guessCategory(name, context = '') {
+  const hit = (t) => (t ? CATEGORY_WORDS.find(([, re]) => re.test(t))?.[0] : null);
+  // اسم المنتج أولاً، وبعدين وصف المتجر في أول الفاتورة (مثل "لبيع بطاريات المركبات")
+  return hit(name) ?? hit(context.split(/\n/).slice(0, 6).join(' ')) ?? null;
 }
 
 /** يستخرج كل الحقول الممكنة من نص الفاتورة */
@@ -234,7 +333,7 @@ export function parseInvoiceText(text, todayISO) {
     phone: pickPhone(text),
     productName,
     model: pickModel(text),
-    category: guessCategory(productName),
+    category: guessCategory(productName, text),
     serialNumber: pickSerial(text),
     warranty: pickWarranty(text),
     returnDays: pickReturnDays(text),

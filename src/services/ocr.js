@@ -21,27 +21,57 @@ async function getWorker() {
   return workerPromise;
 }
 
-/** تحسين الصورة قبل القراءة: تدرّج رمادي + تباين + حجم مناسب */
+/**
+ * تحسين الصورة قبل القراءة:
+ * - تكبير/تصغير لحجم مناسب للخط الصغير
+ * - تسوية الإضاءة: نقدّر الخلفية (ظل، انعكاس، طيّة) بنسخة مغبّشة ونقسم عليها
+ * - تمديد التباين
+ */
 async function preprocess(blob) {
   const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
   const longSide = Math.max(bmp.width, bmp.height);
-  const scale = longSide > 2400 ? 2400 / longSide : longSide < 1200 ? 1200 / longSide : 1;
+  // صور الكاميرا: 2400–3000 بكسل (الخط في الفاتورة صغير). الصور الصغيرة (لقطات شاشة): 1200 على الأقل بدون تكبير زايد
+  const target = longSide < 1600 ? Math.max(longSide, 1200) : Math.min(Math.max(longSide, 2400), 3000);
+  const scale = target / longSide;
   const w = Math.round(bmp.width * scale);
   const h = Math.round(bmp.height * scale);
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bmp, 0, 0, w, h);
+
+  // الخلفية: تصغير شديد ثم تكبير = تغبيش رخيص يشتغل على كل المتصفحات
+  const bw = Math.max(8, Math.round(w / 24));
+  const bh = Math.max(8, Math.round(h / 24));
+  const small = document.createElement('canvas');
+  small.width = bw;
+  small.height = bh;
+  const sctx = small.getContext('2d');
+  sctx.imageSmoothingQuality = 'high';
+  sctx.drawImage(canvas, 0, 0, bw, bh);
+  const bg = document.createElement('canvas');
+  bg.width = w;
+  bg.height = h;
+  const bgctx = bg.getContext('2d', { willReadFrequently: true });
+  bgctx.imageSmoothingQuality = 'high';
+  bgctx.drawImage(small, 0, 0, w, h);
+
   const img = ctx.getImageData(0, 0, w, h);
+  const back = bgctx.getImageData(0, 0, w, h).data;
   const d = img.data;
+  const lum = (a, i) => 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2];
   for (let i = 0; i < d.length; i += 4) {
-    const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    // تمديد التباين البسيط
-    const v = Math.max(0, Math.min(255, (gray - 128) * 1.4 + 128));
+    const g = lum(d, i);
+    const b = Math.max(lum(back, i), 1);
+    // نسبة البكسل للخلفية: الورق ≈ 1، الحبر أقل بكثير
+    const r = Math.min(1.2, g / b);
+    const v = Math.max(0, Math.min(255, (r - 0.35) * (255 / 0.65)));
     d[i] = d[i + 1] = d[i + 2] = v;
   }
   ctx.putImageData(img, 0, 0);
+  bmp.close?.();
   return canvas;
 }
 
