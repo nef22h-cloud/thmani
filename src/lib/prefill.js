@@ -16,7 +16,7 @@ export function ocrToPrefill(r) {
   return clean({
     productName: r.productName,
     category: r.category,
-    storeName: r.storeName,
+    storeName: cleanSellerName(r.storeName),
     storeBranch: r.branch,
     purchaseDate: r.purchaseDate,
     price: r.total,
@@ -36,6 +36,7 @@ export function cleanSellerName(name) {
   if (!name) return name;
   const out = name
     .replace(/[\s\-–(]*(شركة\s+)?(شخص\s+واحد|ذات\s+(ال)?مسؤولية\s+(ال)?محدودة|ذ\.?\s*م\.?\s*م|ش\.?\s*م\.?\s*م|مساهمة(\s+مقفلة|\s+عامة)?|توصية\s+بسيطة|(ال)?مختلطة)\)?\s*$/u, '')
+    .replace(/\s+شركة(\s+\S{1,3})?$/u, '') // بقايا مقطوعة: "... شركة ش"
     .replace(/[\s,،\-–]+$/u, '')
     .trim();
   return out.length >= 2 ? out : name;

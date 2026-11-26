@@ -172,3 +172,25 @@ test('اسم البائع بدون الصفة القانونية', async () => {
   assert.equal(cleanSellerName('مكتبة جرير (مساهمة عامة)'), 'مكتبة جرير');
   assert.equal(cleanSellerName('متجر النخبة'), 'متجر النخبة');
 });
+
+test('OCR: فاتورة نون (جدول رأسه موزّع على أسطر، اسم إنجليزي، Serial Nr)', () => {
+  const text = `فاتورة الضريبة البائع المشتري
+الرقم الضريبي للمنشأة 302004655210003 شركة حلول نون للتسويق الإلكتروني شركة ش ‎Naif‏
+تاريخ الفاتورة 2026-08-27 ‎Kingdom of Saudi Arabia‏
+المستند المصدر 568075030116038
+الرقم شامل | ضريبة ‏ ضر
+" كود المنتج الوصف ‎aed‏ ضريبة القيمة القيمة 0 ‎are‏
+المضافة سعودي) ‎JU)‏ سعودي)
+‎Z2F7EFC3E2477155FAC15Z- 1‏ هايبركس ‎HyperX Cloud Ill Wired Gaming Headset,‏ 1 34 15.00% 34.96 268.00
+‎Product Serial Nr 45222733‏
+المجموع الفرعي 233.04 ‎Ju,‏
+‏ضريبة القيمة المضافة 34.96 ‎Ju,‏
+‏المجموع 268.00 ‎Ju,‏`;
+  const r = parseInvoiceText(text, '2026-11-26');
+  assert.equal(r.productName, 'هايبركس HyperX Cloud Ill Wired Gaming Headset');
+  assert.equal(r.category, 'electronics');
+  assert.equal(r.serialNumber, '45222733');
+  assert.equal(r.barcode, null);
+  assert.equal(r.branch, null);
+  assert.equal(r.total, 268);
+});

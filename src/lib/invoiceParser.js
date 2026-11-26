@@ -158,11 +158,13 @@ const lines = (text) => normalizeDigits(text).split(/\n/).map((l) => l.replace(/
 
 /** القيمة بعد "عنوان:" في سطر يطابق التسمية */
 function labeled(text, labelRe) {
+  // التسمية لازم تكون كلمة كاملة: "الفرع" ما تطابق "المجموع الفرعي"
+  const L = `(?:^|[\\s(])(?:${labelRe.source})(?![\\p{Script=Arabic}A-Za-z])`;
   for (const line of lines(text)) {
-    const m = line.match(new RegExp(`(?:${labelRe.source})\\s*[:：\\-]?\\s*(.+)$`, 'i'));
+    const m = line.match(new RegExp(`${L}\\s*[:：\\-]?\\s*(.+)$`, 'iu'));
     if (m && /[\p{L}\d]{2,}/u.test(m[1])) return m[1].trim();
     // أحياناً OCR يقلب ترتيب السطر فتجي القيمة قبل التسمية: "UA55X900 الموديل:"
-    const r = line.match(new RegExp(`^(.+?)\\s*(?:${labelRe.source})\\s*[:：]?$`, 'i'));
+    const r = line.match(new RegExp(`^(.+?)\\s*${L}\\s*[:：]?$`, 'iu'));
     if (r && /[\p{L}\d]{2,}/u.test(r[1])) return r[1].trim();
   }
   return null;
@@ -170,52 +172,60 @@ function labeled(text, labelRe) {
 
 /** الرقم التسلسلي */
 export function pickSerial(text) {
-  const v = labeled(text, /الرقم\s*التسلسلي|رقم\s*تسلسلي|التسلسلي|serial\s*(?:no\.?|number)?|s\s*\/\s*n|imei|card\s*no\.?|رقم\s*البطاقة|رقم\s*الكرت/);
+  const v = labeled(text, /الرقم\s*التسلسلي|رقم\s*تسلسلي|التسلسلي|serial\s*(?:no\.?|nr\.?|number|#)?|s\s*\/\s*n|imei|card\s*no\.?|رقم\s*البطاقة|رقم\s*الكرت/);
   const m = v?.replace(/\s+/g, '').match(/[A-Z0-9][A-Z0-9\-]{4,}/i);
   return m ? m[0].toUpperCase() : null;
 }
 
 const NAME_STOP = /باركود|الموديل|موديل|التسلسلي|الكمية|السعر|المجموع|الإجمالي|الاجمالي|ضريبة|الضريبة|الرقم|رقم|التاريخ|الوقت|هاتف|جوال|الضمان|الاسترجاع|الإرجاع|فاتورة|شكرا|qty|total|vat/i;
 
-const TABLE_HEADER = /(البيان|الصنف|الوصف|اسم الصنف|المنتج|description|item)/i;
+const TABLE_HEADER = /(ا?لبيان|ا?لوصف|اسم الصنف|description)/i;
+// أسطر رأس الجدول/الإجماليات اللي ما فيها اسم صنف
+const HEADERISH = /ضريبة|ضريبه|القيمة|المضافة|المضافه|سعودي|الإجمالي|الاجمالي|المجموع|الفرعي|subtotal|vat|total|الخصم|المدفوع/i;
 const TABLE_COLS = /(الكمية|الكميه|السعر|الوحدة|الإجمالي|الاجمالي|qty|price|unit|total)/gi;
 const UNIT_WORDS = /^(حبة|حبه|قطعة|قطعه|عدد|كرتون|علبة|pcs|pc|ea|each)$/i;
 
 /** أطول سلسلة كلمات (عربية/موديل) في سطر من جدول الأصناف */
 function itemTextFromRow(row) {
-  const tokens = row.split(/\s+/);
+  const tokens = row.split(/\s+/).map((t) => t.replace(/^[,،.;:]+|[,،.;:]+$/g, ''));
   let best = [], cur = [];
   for (const t of tokens) {
     const isAr = /^\p{Script=Arabic}{2,}$/u.test(t) && !UNIT_WORDS.test(t);
-    const isModel = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{4,}$/.test(t) || /^[A-Z][a-zA-Z]{2,}$/.test(t);
-    if (isAr || (isModel && cur.length)) cur.push(t);
+    // كلمات إنجليزية (أسماء منتجات أونلاين غالباً إنجليزي): HyperX Cloud III ...
+    const isEn = /^[A-Za-z][A-Za-z'&+]{1,}$/.test(t) && !UNIT_WORDS.test(t);
+    const isModel = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{3,12}$/.test(t);
+    if (isAr || isEn || (isModel && cur.length)) cur.push(t);
     else {
-      if (cur.length > best.length) best = cur;
+      if (cur.join(' ').length > best.join(' ').length) best = cur;
       cur = [];
     }
   }
-  if (cur.length > best.length) best = cur;
+  if (cur.join(' ').length > best.join(' ').length) best = cur;
   if (!best.length || best.join(' ').length < 4) return null;
   // لو في الصف رقم موديل (حروف + أرقام) نضيفه للاسم: "بطارية اسيدبلكو NS60LSMF"
-  const model = tokens.find((t) => /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{5,}$/.test(t) && !best.includes(t));
+  const model = tokens.find((t) => /^(?=.*[A-Z])(?=.*\d)[A-Z0-9\-]{5,12}$/.test(t) && !best.includes(t));
   return model ? `${best.join(' ')} ${model}` : best.join(' ');
 }
 
 /** اسم المنتج: من سطر "المنتج: ..."، أو أول صف تحت رأس جدول الأصناف، أو السطر اللي قبل "الكمية" */
 export function pickProductName(text) {
   const ls = lines(text);
-  // جدول: سطر فيه "البيان" مع أعمدة ثانية (الكمية/السعر...)
-  const hi = ls.findIndex((l) => TABLE_HEADER.test(l) && (l.match(TABLE_COLS) ?? []).length >= 2);
+  // جدول أصناف: رأس الجدول فيه "البيان/الوصف" (وأحياناً موزّع على عدة أسطر)،
+  // وأول صف بعده فيه مبلغ عشري ونص = الصنف
+  const hi = ls.findIndex(
+    (l) => (TABLE_HEADER.test(l) && !/[:：]\s*\S/.test(l.replace(TABLE_HEADER, ''))) || (l.match(TABLE_COLS) ?? []).length >= 3
+  );
   if (hi >= 0) {
-    for (const row of ls.slice(hi + 1, hi + 5)) {
-      if ((row.match(TABLE_COLS) ?? []).length >= 2 || /^(ضريبة|ضيبة|الضريبة)/.test(row)) continue;
+    for (const row of ls.slice(hi + 1, hi + 14)) {
+      if (HEADERISH.test(row) || (row.match(TABLE_COLS) ?? []).length >= 2) continue;
+      if (!/\d+\.\d{2}/.test(row)) continue;
       const name = itemTextFromRow(row);
       if (name && !NAME_STOP.test(name)) return name;
     }
   }
   // OCR أحياناً يسقط الألف في أول الكلمة ("لمنتج")
   const v = labeled(text, /اسم\s*المنتج|ا?لمنتج|ا?لصنف|ا?لبيان|ا?لوصف|item|product|description/);
-  if (v && !/^\d/.test(v) && (v.match(TABLE_COLS) ?? []).length < 2) return v.replace(/\s+\d+\s*[x×].*$/i, '').trim();
+  if (v && !/^\d/.test(v) && (v.match(TABLE_COLS) ?? []).length < 2 && !HEADERISH.test(v)) return v.replace(/\s+\d+\s*[x×].*$/i, '').trim();
   const qi = ls.findIndex((l) => /الكمية|qty/i.test(l));
   if (qi > 0 && !NAME_STOP.test(ls[qi - 1]) && !/[:：]/.test(ls[qi - 1])) return ls[qi - 1];
   return null;
@@ -288,11 +298,16 @@ export function pickReturnDays(text) {
 
 /** باركود المنتج (EAN-13 / EAN-8 / UPC-A) لو مكتوب كرقم */
 export function pickBarcode(text) {
-  const t = normalizeDigits(text);
-  const labeledV = labeled(text, /الباركود|باركود|barcode|ean|upc/);
-  const cand = [labeledV, ...t.split(/\n/)].filter(Boolean);
-  for (const c of cand) {
-    for (const m of c.replace(/(\d)\s(?=\d)/g, '$1').matchAll(/(?<!\d)(\d{13}|\d{12}|\d{8})(?!\d)/g)) {
+  const labeledV = labeled(text, /الباركود|باركود|barcode|ean|upc|gtin/);
+  if (labeledV) {
+    const m = labeledV.replace(/(\d)\s(?=\d)/g, '$1').match(/(?<!\d)(\d{13}|\d{12}|\d{8})(?!\d)/);
+    if (m && validEAN(m[1])) return m[1];
+  }
+  // بدون تسمية: نقبل 13/12 رقم بس (8 أرقام تتشابه مع أرقام تسلسلية وأرقام طلبات)،
+  // ونتجاهل أسطر الرقم التسلسلي والضريبي والفاتورة
+  for (const line of normalizeDigits(text).split(/\n/)) {
+    if (/serial|تسلسل|ضريبي|الفاتورة|invoice|order|طلب|هاتف|جوال/i.test(line)) continue;
+    for (const m of line.replace(/(\d)\s(?=\d)/g, '$1').matchAll(/(?<!\d)(\d{13}|\d{12})(?!\d)/g)) {
       if (validEAN(m[1])) return m[1];
     }
   }
@@ -311,7 +326,7 @@ const CATEGORY_WORDS = [
   ['appliances', /غسالة|ثلاجة|مكيف|فرن|ميكروويف|مكنسة|نشافة|غسالة صحون|خلاط|قلاية|سخان|برادة/i],
   ['furniture', /كنب|سرير|طاولة|كرسي|دولاب|خزانة|مرتبة|مكتب خشب/i],
   ['cars', /سيارة|سياره|إطار|اطار|كفر|بطارية|بطاريه|زيت محرك|مركبات|قطع غيار/i],
-  ['electronics', /شاشة|تلفزيون|تلفاز|لابتوب|حاسب|كمبيوتر|سماعة|ساعة ذكية|تابلت|آيباد|ايباد|بلايستيشن|كاميرا|طابعة|راوتر|tv|laptop/i],
+  ['electronics', /headset|headphones?|earbuds|airpods|gaming|ps5|xbox|monitor|keyboard|mouse|console|شاشة|تلفزيون|تلفاز|لابتوب|حاسب|كمبيوتر|سماعة|ساعة ذكية|تابلت|آيباد|ايباد|بلايستيشن|كاميرا|طابعة|راوتر|tv|laptop/i],
 ];
 
 /** تصنيف تقريبي من اسم المنتج */
